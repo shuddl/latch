@@ -1,0 +1,24 @@
+# .dev.vars.example  →  copy to .dev.vars (gitignored). NEVER commit real secrets.
+# Cloudflare bindings (D1/KV/R2/Queues/DO) are declared in wrangler.toml, not here.
+
+# --- Cloudflare account / zone (deployment) ---
+CLOUDFLARE_ACCOUNT_ID="1d40ee303e35970bbd47a10f8ad7d466"
+LATCH_DEV_SUBDOMAIN="latch.tp-freight.com"
+
+# --- AI (build/heal time only — NEVER in the per-transaction runtime) ---
+ANTHROPIC_API_KEY=""
+
+# --- Dev auth stub (replaced by Clerk at M5) ---
+# Requests send header X-Latch-Dev-Org: <org>; this is the fallback default tenant.
+LATCH_DEV_DEFAULT_ORG="default"
+
+# --- Connectivity secrets (referenced by secretRef in connection config) ---
+# Store the actual values as Cloudflare secrets in prod; these are local-dev placeholders.
+SFTP_DEFAULT_HOST=""
+SFTP_DEFAULT_USER=""
+SFTP_DEFAULT_KEY=""          # private key (local dev only)
+AS2_SIGNING_CERT=""          # PEM (local dev only)
+AS2_SIGNING_KEY=""           # PEM (local dev only)
+
+# --- Handshake (M6) ---
+HSP_ED25519_PRIVATE_KEY=""   # org signing key for the bilateral handshake (local dev only)
