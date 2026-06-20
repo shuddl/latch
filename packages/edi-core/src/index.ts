@@ -7,6 +7,12 @@
 // lib (node-x12 / x12-parser / Stedi tooling) behind this same `EdiCore`, swapping
 // the impl without touching callers. Loop-awareness is intentionally deferred to
 // that swap (tracked: REVIEW.md / TASKS open-Q #1).
+//
+// `parse` returns a Result and NEVER throws — malformed input is a structured error,
+// which is what lets `verify` claim 100%-graceful adversarial handling (docs/07) and
+// keeps the pipeline hot path throw-free (CLAUDE.md §2; packages/shared result.ts).
+
+import { ok, err, type Result } from '@latch/shared';
 
 export interface EdiDelimiters {
   element: string;
@@ -31,7 +37,7 @@ export interface EnvelopeIssue {
 }
 
 export interface EdiCore {
-  parse(raw: string): EdiInterchange;
+  parse(raw: string): Result<EdiInterchange>;
   serialize(doc: EdiInterchange): string;
   validateEnvelope(doc: EdiInterchange): EnvelopeIssue[];
 }
@@ -39,21 +45,27 @@ export interface EdiCore {
 const ISA_LEN = 106; // X12 ISA is a fixed-length 106-char record
 
 /** Detect delimiters from the leading ISA segment (positions are fixed by the standard). */
-export function detectDelimiters(raw: string): EdiDelimiters {
+export function detectDelimiters(raw: string): Result<EdiDelimiters> {
   if (raw.length < ISA_LEN || raw.slice(0, 3) !== 'ISA') {
-    throw new Error('Not an X12 interchange: missing leading ISA segment');
+    return err({
+      code: 'PARSE',
+      message: 'Not an X12 interchange: input does not begin with a 106-character ISA segment',
+    });
   }
-  return {
+  return ok({
     element: raw[3]!,
     subElement: raw[ISA_LEN - 2]!, // index 104
     segment: raw[ISA_LEN - 1]!, // index 105
-  };
+  });
 }
 
 export function createEdiCore(): EdiCore {
   return {
-    parse(raw: string): EdiInterchange {
-      const delimiters = detectDelimiters(raw);
+    parse(raw: string): Result<EdiInterchange> {
+      const delim = detectDelimiters(raw);
+      if (!delim.ok) return delim;
+      const delimiters = delim.value;
+
       const segments: EdiSegment[] = [];
       for (const chunk of raw.split(delimiters.segment)) {
         const seg = chunk.trim(); // tolerate inter-segment whitespace/newlines
@@ -61,7 +73,7 @@ export function createEdiCore(): EdiCore {
         const parts = seg.split(delimiters.element);
         segments.push({ tag: parts[0]!, elements: parts.slice(1) });
       }
-      return { segments, delimiters };
+      return ok({ segments, delimiters });
     },
 
     serialize(doc: EdiInterchange): string {

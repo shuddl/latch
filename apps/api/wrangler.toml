@@ -15,6 +15,7 @@ enabled = true
 binding = "LATCH_DB"
 database_name = "latch"
 database_id = "REPLACE_WITH_D1_ID" # `wrangler d1 create latch` → put id in CI/secret, not committed real value
+migrations_dir = "../../infra/migrations" # `wrangler d1 migrations apply latch` tracks applied files
 
 [[kv_namespaces]]
 binding = "LATCH_KV"

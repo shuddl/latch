@@ -19,11 +19,17 @@ type Variables = { tenantId: string };
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// Accepted tenant-id shape: lowercase/alnum + `_-`, 1–64 chars. Anything else is
+// rejected (not used as a raw value) to avoid arbitrary header-driven behavior and
+// D1 FK failures against unseeded tenants. Real tenant resolution lands with Clerk (M5).
+const ORG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
 // Dev-stub auth (CLAUDE.md §2.3): X-Latch-Dev-Org → tenant_id. The API shape does
 // not change when Clerk lands at M5; only this middleware is replaced.
 app.use('*', async (c, next) => {
-  const org = c.req.header('X-Latch-Dev-Org') ?? c.env.LATCH_DEV_DEFAULT_ORG ?? 'default';
-  c.set('tenantId', org);
+  const fallback = c.env.LATCH_DEV_DEFAULT_ORG ?? 'default';
+  const header = c.req.header('X-Latch-Dev-Org');
+  c.set('tenantId', header && ORG_RE.test(header) ? header : fallback);
   await next();
 });
 

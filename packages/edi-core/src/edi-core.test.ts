@@ -21,29 +21,46 @@ describe('edi-core', () => {
 
   it('round-trips a 214 byte-faithfully', () => {
     const parsed = edi.parse(SAMPLE_214);
-    expect(edi.serialize(parsed)).toBe(SAMPLE_214);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(edi.serialize(parsed.value)).toBe(SAMPLE_214);
   });
 
   it('detects delimiters from ISA', () => {
-    const { delimiters } = edi.parse(SAMPLE_214);
-    expect(delimiters.element).toBe('*');
-    expect(delimiters.segment).toBe('~');
-    expect(delimiters.subElement).toBe('>');
+    const parsed = edi.parse(SAMPLE_214);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.delimiters.element).toBe('*');
+    expect(parsed.value.delimiters.segment).toBe('~');
+    expect(parsed.value.delimiters.subElement).toBe('>');
+  });
+
+  it('returns a structured error on non-X12 input — never throws', () => {
+    const r = edi.parse('this is not EDI');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors[0]?.code).toBe('PARSE');
   });
 
   it('preserves populated elements across a multi-line variant', () => {
     const multiline = SAMPLE_214.replace(/~/g, '~\n');
     const parsed = edi.parse(multiline);
-    // Element-level fidelity: the ST and L11 segments survive intact.
-    const st = parsed.segments.find((s) => s.tag === 'ST');
-    const l11 = parsed.segments.find((s) => s.tag === 'L11');
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const st = parsed.value.segments.find((s) => s.tag === 'ST');
+    const l11 = parsed.value.segments.find((s) => s.tag === 'L11');
     expect(st?.elements).toEqual(['214', '0001']);
     expect(l11?.elements).toEqual(['BOL12345', 'BM']);
   });
 
   it('flags a broken envelope', () => {
     const parsed = edi.parse(SAMPLE_214);
-    const broken = { ...parsed, segments: parsed.segments.filter((s) => s.tag !== 'GE') };
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const broken = {
+      ...parsed.value,
+      segments: parsed.value.segments.filter((s) => s.tag !== 'GE'),
+    };
     const issues = edi.validateEnvelope(broken);
     expect(issues.some((i) => i.segment === 'GE')).toBe(true);
   });
