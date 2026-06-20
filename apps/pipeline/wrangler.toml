@@ -1,0 +1,21 @@
+# apps/pipeline — transaction-processing queue consumer.
+# account_id via CLOUDFLARE_ACCOUNT_ID env (not committed). Resources per REVIEW.md N3.
+
+name = "latch-pipeline"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "LATCH_DB"
+database_name = "latch"
+database_id = "REPLACE_WITH_D1_ID"
+
+[[r2_buckets]]
+binding = "LATCH_R2"
+bucket_name = "latch"
+
+[[queues.consumers]]
+queue = "txn-ingest"
+max_batch_size = 10
+max_retries = 3

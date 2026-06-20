@@ -455,3 +455,17 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# ──────────────────────────────────────────────────────────────
+# Latch: re-include the source workspace. The Visual Studio template
+# above ignores `**/[Pp]ackages/*` (NuGet) — but in this pnpm monorepo
+# `packages/` is our SOURCE tree. This negation must stay last to win.
+# ──────────────────────────────────────────────────────────────
+!/packages/
+!/packages/**
+# …but never installed deps or build/cache artifacts inside the workspace.
+**/node_modules/
+**/.turbo/
+**/dist/
+**/.wrangler/
+**/coverage/

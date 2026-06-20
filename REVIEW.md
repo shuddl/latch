@@ -100,3 +100,17 @@ Queues, Durable Objects, scheduled Cron, and inbound AS2 all require the **Worke
 - The proposed defaults for D1–D6 and the E-series clarifications are safe to adopt as-is unless you say otherwise; they'll be applied as `// LATCH-ASSUMPTION:` notes in code and reflected in `TASKS.md` open-questions as they're resolved.
 
 → Continue to **`LAUNCH-PLAN.md`** for needs, sprints, and the phases through launch.
+
+---
+
+## H. Automated review disposition (PR #1, gemini-code-assist)
+
+The bot raised 5 items, all on the `06` schema + `.dev.vars.example`. Disposition: the four schema items are sound and are **applied to the executable migration** (`infra/migrations/0001_init.sql`), not to Spencer's illustrative `docs/06` DDL — the doc stays the source narrative; the migration is the artifact. The account-ID item is declined with rationale.
+
+| Bot item | Verdict | Action |
+|---|---|---|
+| `last_seen` → `last_seen_at` (timestamp-naming consistency) | Adopt | Renamed in migration. |
+| Composite index `(connection_id, isa_control, gs_control, st_control)` on `transactions` | Adopt | Critical for 997-linking + duplicate detection at volume; added as `idx_txn_control`. |
+| `partners` `UNIQUE(id, tenant_id)` | Adopt | Enables composite FKs for tenant isolation. |
+| `connections` composite FK `(partner_id, tenant_id) → partners(id, tenant_id)` | Adopt | Defense-in-depth tenant isolation; applied across the child hierarchy (`specs`, `maps`, `connections`, …). App-level tenant scoping remains primary; FKs are a backstop. `PRAGMA foreign_keys=ON`. |
+| Remove Cloudflare Account ID from `.dev.vars.example` | **Decline** | Intentional (CLAUDE.md §3): it's the single **house** account, not a generic OSS template, and an account ID is **config, not a credential** (see E1). Leaving it in the template is a deliberate convenience. Real secrets stay out of the example. |
