@@ -1,0 +1,48 @@
+# apps/api — control-plane Worker.
+# account_id is NOT inlined here (CLAUDE.md §3): set CLOUDFLARE_ACCOUNT_ID in the
+# environment (.dev.vars / CI secret). Resources must be provisioned first
+# (wrangler d1/kv/r2/queues create) — see REVIEW.md N3.
+
+name = "latch-api"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "LATCH_DB"
+database_name = "latch"
+database_id = "REPLACE_WITH_D1_ID" # `wrangler d1 create latch` → put id in CI/secret, not committed real value
+migrations_dir = "../../infra/migrations" # `wrangler d1 migrations apply latch` tracks applied files
+
+[[kv_namespaces]]
+binding = "LATCH_KV"
+id = "REPLACE_WITH_KV_ID"
+
+[[r2_buckets]]
+binding = "LATCH_R2"
+bucket_name = "latch"
+
+[[queues.producers]]
+binding = "TXN_INGEST"
+queue = "txn-ingest"
+
+[[queues.producers]]
+binding = "TXN_EGRESS"
+queue = "txn-egress"
+
+[[queues.producers]]
+binding = "RECERT"
+queue = "recert"
+
+[durable_objects]
+bindings = [
+  { name = "CONNECTION_DO", class_name = "ConnectionDO" },
+  { name = "HANDSHAKE_DO", class_name = "HandshakeDO" },
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ConnectionDO", "HandshakeDO"]
