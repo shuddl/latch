@@ -159,6 +159,19 @@ importers:
         version: 5.9.3
 
   packages/transform:
+    dependencies:
+      '@latch/canonical':
+        specifier: workspace:*
+        version: link:../canonical
+      '@latch/edi-core':
+        specifier: workspace:*
+        version: link:../edi-core
+      '@latch/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
     devDependencies:
       typescript:
         specifier: ^5.6.2

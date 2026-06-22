@@ -1,2 +1,7 @@
-// @latch/transform — deterministic runtime transform engine. Built in M1.3 (docs/04,08).
-export const PACKAGE = "transform" as const;
+// @latch/transform — deterministic runtime transform engine (M1.3, docs/04/07/08).
+// Executes declarative MapArtifacts in both directions with no LLM in the hot path.
+
+export * from './map';
+export * from './address-schema';
+export * from './engine';
+export { MAP_214_STATUSEVENT } from './maps/214-statusevent';
