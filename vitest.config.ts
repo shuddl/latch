@@ -4,5 +4,9 @@ export default defineConfig({
   test: {
     include: ['packages/**/*.test.ts', 'apps/**/*.test.ts'],
     environment: 'node',
+    // Enable Node's built-in SQLite so the production D1 store can be integration-tested
+    // against the real migration (apps/api store contract). Harmless elsewhere.
+    pool: 'forks',
+    poolOptions: { forks: { execArgv: ['--experimental-sqlite'] } },
   },
 });
