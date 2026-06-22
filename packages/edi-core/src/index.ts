@@ -14,6 +14,10 @@
 
 import { ok, err, type Result } from '@latch/shared';
 
+export * from './address';
+export * from './loops';
+export * from './envelope';
+
 export interface EdiDelimiters {
   element: string;
   segment: string;
