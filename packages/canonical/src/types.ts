@@ -126,6 +126,10 @@ export const statusEventSchema = z.object({
   occurredAt: z.string(), // ISO 8601
   location: addressSchema.optional(),
   reasonCode: z.string().optional(),
+  // LATCH-ASSUMPTION: docs/06 omits references on StatusEvent, but a real 214 carries
+  // qualified reference numbers (BOL/PRO/PO via L11). Modeling them here keeps the
+  // transform lossless and makes qualifier-coverage meaningful. Proposed docs/06 refinement.
+  references: z.array(referenceSchema).optional(),
   raw: rawSchema,
 });
 export type StatusEvent = z.infer<typeof statusEventSchema>;
