@@ -72,13 +72,13 @@ function fidelity(original: EdiInterchange, rebuilt: EdiInterchange): { matched:
   for (let i = 0; i < n; i++) {
     const a = original.segments[i];
     const b = rebuilt.segments[i];
-    total += 1; // the tag is a token too
-    if (a && b && a.tag === b.tag) matched += 1;
     const els = Math.max(a?.elements.length ?? 0, b?.elements.length ?? 0);
+    total += 1;
+    if (a && b && a.tag === b.tag) matched += 1;
     for (let j = 0; j < els; j++) {
       const av = a?.elements[j] ?? '';
       const bv = b?.elements[j] ?? '';
-      if (av === '' && bv === '') continue; // skip only when both empty
+      if (av === '' && bv === '') continue;
       total += 1;
       if (av === bv) matched += 1;
     }
