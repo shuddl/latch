@@ -23,6 +23,13 @@ import { getPath } from '@latch/shared';
 
 const edi = createEdiCore();
 
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v)).join(',')}]`;
+  const obj = value as Record<string, unknown>;
+  return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
+}
+
 /** Element-level fidelity of a reconstructed interchange vs the original [0,1]. */
 export function elementFidelity(original: EdiInterchange, rebuilt: EdiInterchange): number {
   const want = enumerateElements(original).map((e) => `${formatAddress(e.address)}=${e.value}`);
@@ -85,8 +92,8 @@ export function forwardOracle(
   }
   const issues: string[] = [];
   for (let i = 0; i < expected.length; i++) {
-    const got = JSON.stringify(stripRaw(fwd.value[i]!));
-    const want = JSON.stringify(stripRaw(expected[i]!));
+    const got = stableStringify(stripRaw(fwd.value[i]!));
+    const want = stableStringify(stripRaw(expected[i]!));
     if (got !== want) issues.push(`record ${i} differs from the confirmed expected canonical`);
   }
   return { match: issues.length === 0, issues };

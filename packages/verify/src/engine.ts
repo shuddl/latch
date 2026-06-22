@@ -47,7 +47,21 @@ function dim(value: number, threshold: number): DimensionScore {
 function bodySegmentTags(input: string): { ok: true; tags: Set<string>; doc: EdiInterchange } | { ok: false } {
   const parsed = edi.parse(input);
   if (!parsed.ok) return { ok: false };
-  return { ok: true, tags: new Set(parsed.value.segments.map((s) => s.tag)), doc: parsed.value };
+  const body: typeof parsed.value.segments = [];
+  let inSet = false;
+  for (const segment of parsed.value.segments) {
+    if (segment.tag === 'ST') {
+      inSet = true;
+      continue;
+    }
+    if (segment.tag === 'SE') {
+      inSet = false;
+      continue;
+    }
+    if (inSet) body.push(segment);
+  }
+  const doc: EdiInterchange = { segments: body, delimiters: parsed.value.delimiters };
+  return { ok: true, tags: new Set(body.map((s) => s.tag)), doc };
 }
 
 /** Run certification: inject the corpus through `map`, score vs the benchmark bar. */

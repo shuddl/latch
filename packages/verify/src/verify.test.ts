@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { MAP_214_STATUSEVENT } from '@latch/transform';
+import type { CanonicalRecord } from '@latch/canonical';
 import { certify, buildCorpus214, BENCHMARK_BAR } from './index';
+import { forwardOracle } from './oracle';
 
 // Tie the corpus to the on-disk fixture used by CI (docs/07: harness has teeth).
 const fixturePath = fileURLToPath(new URL('../../../fixtures/214/sample-214-001.edi', import.meta.url));
@@ -63,5 +65,23 @@ describe('verify — the bar has teeth (a broken map must FAIL)', () => {
     const bad = certify(broken, corpus);
     expect(bad.passed).toBe(false);
     expect(bad.shortfalls.length).toBeGreaterThan(0);
+  });
+});
+
+describe('verify/oracle — forward canonical comparison', () => {
+  it('treats semantically-equal canonical records as equal despite key order differences', () => {
+    const expected: CanonicalRecord[] = [
+      {
+        shipmentId: '0510938',
+        kind: 'StatusEvent',
+        occurredAt: '2026-06-18T13:00:00',
+        canonicalVersion: '1',
+        reasonCode: 'NS',
+        statusCode: 'X1',
+        location: { country: 'US', city: 'MEMPHIS', state: 'TN' },
+      },
+    ];
+    const out = forwardOracle(MAP_214_STATUSEVENT, fixtureText, expected);
+    expect(out.match).toBe(true);
   });
 });

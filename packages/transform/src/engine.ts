@@ -54,6 +54,7 @@ function dateTimeToIso(date: string | undefined, time: string | undefined): stri
 // ----- transaction-set splitting -------------------------------------------------
 
 interface RawSet {
+  delimiters: EdiInterchange['delimiters'];
   interchange: string[];
   group: string[];
   st: string[];
@@ -83,7 +84,13 @@ function splitTransactionSets(doc: EdiInterchange): Result<RawSet[]> {
     if (j >= doc.segments.length) {
       return err({ code: 'PARSE', message: `ST ${st.elements[1] ?? ''} has no closing SE segment` });
     }
-    sets.push({ interchange: isa.elements, group: gs.elements, st: st.elements, body });
+    sets.push({
+      delimiters: doc.delimiters,
+      interchange: isa.elements,
+      group: gs.elements,
+      st: st.elements,
+      body,
+    });
     i = j + 1; // skip the SE
   }
   if (sets.length === 0) {
@@ -97,7 +104,7 @@ function splitTransactionSets(doc: EdiInterchange): Result<RawSet[]> {
 function applyRules(map: MapArtifact, set: RawSet): Result<CanonicalRecord> {
   const bodyDoc: EdiInterchange = {
     segments: set.body,
-    delimiters: { element: '*', segment: '~', subElement: '>' },
+    delimiters: set.delimiters,
   };
   const record: Record<string, unknown> = {};
   const warnings: Issue[] = [];

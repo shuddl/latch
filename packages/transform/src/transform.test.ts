@@ -100,6 +100,27 @@ describe('transform/fromCanonical — round-trip fidelity (the moat)', () => {
     fromCanonical(map, fwd.value);
     expect(JSON.stringify(fwd.value)).toBe(snapshotBefore);
   });
+
+  it('preserves non-default delimiters from the original interchange snapshot', () => {
+    const parsed = edi.parse(SAMPLE_214);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const doc = {
+      ...parsed.value,
+      delimiters: { element: '^', segment: '|', subElement: ':' },
+      segments: parsed.value.segments.map((s) =>
+        s.tag === 'ISA' ? { ...s, elements: [...s.elements.slice(0, 15), ':'] } : s,
+      ),
+    };
+    const expectedWire = edi.serialize(doc);
+    const fwd = toCanonical(map, doc);
+    expect(fwd.ok).toBe(true);
+    if (!fwd.ok) return;
+    const back = fromCanonical(map, fwd.value);
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(edi.serialize(back.value)).toBe(expectedWire);
+  });
 });
 
 describe('transform — throw-free hot path (CLAUDE.md §2)', () => {

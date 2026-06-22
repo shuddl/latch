@@ -26,7 +26,7 @@ Please give us a reasonable window to remediate before any public disclosure.
 - Secrets live in Cloudflare Secrets (production) or `.dev.vars` (local, gitignored).
 - Bindings are declared in `wrangler.toml`; **no** account ids, zone names, or credentials
   are inlined in source.
-- CI scans changed files for accidentally-committed secrets before merge.
+- **CI secret scanning** _(planned, M5)_: add an explicit workflow step that scans changed files for accidentally-committed secrets before merge.
 - **Secret-rotation runbook** _(planned, M5)_: documented rotation for signing keys and
   partner connectivity credentials, with zero-downtime cutover.
 
