@@ -75,6 +75,30 @@ describe('transform (214 ↔ StatusEvent)', () => {
     expect(edi.serialize(back.value)).toBe(SAMPLE_214);
   });
 
+  it('round-trips multiple references including an empty-value one (alignment)', () => {
+    // Three L11s, the middle one empty — the inverse must not shift refs left.
+    const multiRef =
+      'ISA*00*          *00*          *ZZ*SHIPPERID      *ZZ*CARRIERID      *260618*1305*U*00401*000000001*0*P*>~' +
+      'GS*QM*SHIPPERID*CARRIERID*20260618*1305*1*X*004010~' +
+      'ST*214*0001~' +
+      'B10*4938294*0510938*SCAC~' +
+      'L11*AAA*BM~' +
+      'L11**ZZ~' +
+      'L11*CCC*PO~' +
+      'AT7*X1*NS***20260618*1300*LT~' +
+      'MS1*MEMPHIS*TN*US~' +
+      'SE*8*0001~' +
+      'GE*1*1~' +
+      'IEA*1*000000001~';
+    const parsed = edi.parse(multiRef);
+    if (!parsed.ok) throw new Error('parse failed');
+    const toCanon = tf.toCanonical(MAP, parsed.value);
+    if (!toCanon.ok) throw new Error('toCanonical failed');
+    const back = tf.fromCanonical(MAP, toCanon.value);
+    if (!back.ok) throw new Error('fromCanonical failed');
+    expect(edi.serialize(back.value)).toBe(multiRef);
+  });
+
   it('fromCanonical fails gracefully when the source was not preserved', () => {
     // Without raw.__source the engine cannot rebuild the envelope — it returns a
     // structured error rather than emitting a corrupt interchange.

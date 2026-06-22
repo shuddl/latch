@@ -8,6 +8,7 @@
 
 import { createEdiCore, type EdiInterchange } from '@latch/edi-core';
 import { createTransformEngine, type MapArtifact } from '@latch/transform';
+import { getPath } from '@latch/shared';
 import type { StatusEvent } from '@latch/canonical';
 
 export type GoldenCategory =
@@ -59,14 +60,11 @@ export interface CertificationResult {
 // The benchmark bar — a map reaches `production` only if ALL hold (docs/07, docs/02).
 const BAR = { required: 1, qualifier: 1, roundtrip: 0.999, adversarial: 1, semantic: 1 } as const;
 
-function getPath(source: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((node, k) => {
-    if (node && typeof node === 'object') return (node as Record<string, unknown>)[k];
-    return undefined;
-  }, source);
-}
-
-/** Element-level round-trip fidelity between the original and the rebuilt interchange. */
+/**
+ * Element-level round-trip fidelity. Symmetric: scores an element whenever EITHER
+ * side is populated, so extra/corrupt data introduced on rebuild is penalized too
+ * (not just dropped source data).
+ */
 function fidelity(original: EdiInterchange, rebuilt: EdiInterchange): { matched: number; total: number } {
   let matched = 0;
   let total = 0;
@@ -74,15 +72,15 @@ function fidelity(original: EdiInterchange, rebuilt: EdiInterchange): { matched:
   for (let i = 0; i < n; i++) {
     const a = original.segments[i];
     const b = rebuilt.segments[i];
-    const els = Math.max(a?.elements.length ?? 0, b?.elements.length ?? 0);
-    // The tag is a populated token too.
-    total += 1;
+    total += 1; // the tag is a token too
     if (a && b && a.tag === b.tag) matched += 1;
+    const els = Math.max(a?.elements.length ?? 0, b?.elements.length ?? 0);
     for (let j = 0; j < els; j++) {
       const av = a?.elements[j] ?? '';
-      if (av === '') continue; // only score populated source elements
+      const bv = b?.elements[j] ?? '';
+      if (av === '' && bv === '') continue; // skip only when both empty
       total += 1;
-      if (av === (b?.elements[j] ?? '')) matched += 1;
+      if (av === bv) matched += 1;
     }
   }
   return { matched, total };

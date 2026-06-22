@@ -11,7 +11,7 @@
 import type { CanonicalRecord, StatusEvent } from '@latch/canonical';
 import { statusEventSchema } from '@latch/canonical';
 import type { EdiInterchange, EdiSegment } from '@latch/edi-core';
-import { ok, err, type Result, type Issue } from '@latch/shared';
+import { ok, err, getPath, setPath, type Result, type Issue } from '@latch/shared';
 import { type MapArtifact } from './map';
 
 export * from './map';
@@ -26,24 +26,6 @@ function nth(segments: EdiSegment[], tag: string, occurrence: number): EdiSegmen
   return undefined;
 }
 
-function setPath(target: Record<string, unknown>, path: string, value: unknown): void {
-  const keys = path.split('.');
-  let node = target;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const k = keys[i]!;
-    if (typeof node[k] !== 'object' || node[k] === null) node[k] = {};
-    node = node[k] as Record<string, unknown>;
-  }
-  node[keys[keys.length - 1]!] = value;
-}
-
-function getPath(source: Record<string, unknown>, path: string): unknown {
-  return path.split('.').reduce<unknown>((node, k) => {
-    if (node && typeof node === 'object') return (node as Record<string, unknown>)[k];
-    return undefined;
-  }, source);
-}
-
 // X12 CCYYMMDD + HHMM → 'CCYY-MM-DDTHH:MM:00' (no tz: reversible without assumptions).
 function toIso(date8: string | undefined, time4: string | undefined): string | undefined {
   if (!date8 || date8.length !== 8) return undefined;
@@ -54,12 +36,12 @@ function toIso(date8: string | undefined, time4: string | undefined): string | u
 }
 
 function fromIso(iso: string): { date8: string; time4: string } {
-  // 'CCYY-MM-DDTHH:MM:SS' → CCYYMMDD + HHMM
+  // 'CCYY-MM-DDTHH:MM:SS' → CCYYMMDD + HHMM (robust to single-digit hour/min)
   const [date = '', time = ''] = iso.split('T');
-  return {
-    date8: date.replace(/-/g, ''),
-    time4: time.slice(0, 5).replace(':', ''),
-  };
+  const parts = time.split(':');
+  const hh = (parts[0] ?? '00').padStart(2, '0');
+  const mm = (parts[1] ?? '00').padStart(2, '0');
+  return { date8: date.replace(/-/g, ''), time4: `${hh}${mm}` };
 }
 
 export interface TransformEngine {
@@ -88,13 +70,15 @@ export function createTransformEngine(): TransformEngine {
           );
           if (iso) setPath(out, rule.path, iso);
         } else {
+          // Keep one entry per source segment occurrence (no filtering) so the
+          // inverse in fromCanonical aligns positionally — filtering empties here
+          // would shift later references onto the wrong segments on rebuild.
           const refs = doc.segments
             .filter((s) => s.tag === rule.segment)
             .map((s) => ({
               qualifier: s.elements[rule.qualifierElement - 1] ?? '',
               value: s.elements[rule.valueElement - 1] ?? '',
-            }))
-            .filter((r) => r.value !== '');
+            }));
           if (refs.length > 0) setPath(out, rule.path, refs);
         }
       }
