@@ -19,7 +19,7 @@ import {
 } from '@latch/edi-core';
 import type { CanonicalRecord } from '@latch/canonical';
 import { toCanonical, fromCanonical, RAW_EDI_KEY, type MapArtifact } from '@latch/transform';
-import { getPath } from '@latch/shared';
+import { getPath, stableStringify } from '@latch/shared';
 
 const edi = createEdiCore();
 
