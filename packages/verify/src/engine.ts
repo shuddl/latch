@@ -17,7 +17,7 @@ import { roundTripOracle, forwardOracle, differentialOracle, adversarialOracle }
 const edi = createEdiCore();
 
 function stableStringify(value: unknown, depth = 0): string {
-  if (depth > 100) return '"[max-depth]"'; // guard against pathological/cyclic inputs
+  if (depth > 50) return '"[max-depth]"'; // guard against pathological/cyclic inputs
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v, depth + 1)).join(',')}]`;
   const obj = value as Record<string, unknown>;

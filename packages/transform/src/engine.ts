@@ -18,7 +18,7 @@ import {
   canonicalRecordSchema,
   type CanonicalRecord,
 } from '@latch/canonical';
-import { ok, err, type Result, type Issue } from '@latch/shared';
+import { ok, err, getPath, setPath, type Result, type Issue } from '@latch/shared';
 import type { MapArtifact, FieldRule } from './map';
 
 export type TransformResult<T> = Result<T>;
@@ -35,39 +35,7 @@ interface EdiSnapshot {
 }
 
 // ----- pure path helpers (no `any` at the boundary) -----------------------------
-
-/** Reject keys that could pollute Object.prototype (defense-in-depth; map paths are authored, not user input). */
-function isSafeKey(key: string): boolean {
-  return key !== '__proto__' && key !== 'constructor' && key !== 'prototype';
-}
-
-function setPath(target: Record<string, unknown>, path: string, value: unknown): void {
-  const parts = path.split('.');
-  let cur: Record<string, unknown> = target;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const key = parts[i]!;
-    if (!isSafeKey(key)) return;
-    const next = cur[key];
-    if (typeof next !== 'object' || next === null) {
-      cur[key] = Object.create(null) as Record<string, unknown>;
-    }
-    cur = cur[key] as Record<string, unknown>;
-  }
-  const last = parts[parts.length - 1]!;
-  if (!isSafeKey(last)) return;
-  cur[last] = value;
-}
-
-function getPath(source: Record<string, unknown>, path: string): unknown {
-  const parts = path.split('.');
-  let cur: unknown = source;
-  for (const key of parts) {
-    if (!isSafeKey(key)) return undefined;
-    if (typeof cur !== 'object' || cur === null) return undefined;
-    cur = (cur as Record<string, unknown>)[key];
-  }
-  return cur;
-}
+// `getPath`/`setPath` live in @latch/shared (prototype-pollution-guarded, single source).
 
 // ----- derived builtins (pure, total) -------------------------------------------
 

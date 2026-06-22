@@ -19,6 +19,7 @@ import {
 } from '@latch/edi-core';
 import type { CanonicalRecord } from '@latch/canonical';
 import { toCanonical, fromCanonical, RAW_EDI_KEY, type MapArtifact } from '@latch/transform';
+import { getPath } from '@latch/shared';
 
 const edi = createEdiCore();
 
@@ -123,16 +124,6 @@ export function differentialOracle(map: MapArtifact, input: string): { match: bo
     }
   }
   return { match: issues.length === 0, issues };
-}
-
-function getPath(source: Record<string, unknown>, path: string): unknown {
-  let cur: unknown = source;
-  for (const key of path.split('.')) {
-    if (key === '__proto__' || key === 'constructor' || key === 'prototype') return undefined;
-    if (typeof cur !== 'object' || cur === null) return undefined;
-    cur = (cur as Record<string, unknown>)[key];
-  }
-  return cur;
 }
 
 /** Adversarial oracle: a malformed input must be rejected gracefully (no throw, no silent map). */
