@@ -148,3 +148,20 @@ describe('transform — MapArtifact identity hashing', () => {
     expect(mutated.compiledHash).not.toBe(map.compiledHash);
   });
 });
+
+describe('transform — prototype-pollution safety (CodeQL hardening)', () => {
+  it('ignores a rule whose path targets __proto__ and never pollutes Object.prototype', () => {
+    const doc = edi.parse(SAMPLE_214);
+    if (!doc.ok) return;
+    const malicious: MapArtifact = withCompiledHash({
+      ...map,
+      compiledHash: undefined,
+      rules: [...map.rules, { kind: 'const', path: '__proto__.polluted', value: 'yes' }],
+    });
+    const r = toCanonical(malicious, doc.value);
+    expect(r.ok).toBe(true);
+    // The prototype must be untouched for objects created before AND after the call.
+    expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
+    expect((Object.prototype as Record<string, unknown>)['polluted']).toBeUndefined();
+  });
+});

@@ -128,6 +128,7 @@ export function differentialOracle(map: MapArtifact, input: string): { match: bo
 function getPath(source: Record<string, unknown>, path: string): unknown {
   let cur: unknown = source;
   for (const key of path.split('.')) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') return undefined;
     if (typeof cur !== 'object' || cur === null) return undefined;
     cur = (cur as Record<string, unknown>)[key];
   }

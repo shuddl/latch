@@ -16,11 +16,12 @@ import { roundTripOracle, forwardOracle, differentialOracle, adversarialOracle }
 
 const edi = createEdiCore();
 
-function stableStringify(value: unknown): string {
+function stableStringify(value: unknown, depth = 0): string {
+  if (depth > 100) return '"[max-depth]"'; // guard against pathological/cyclic inputs
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v, depth + 1)).join(',')}]`;
   const obj = value as Record<string, unknown>;
-  return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
+  return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k], depth + 1)}`).join(',')}}`;
 }
 
 function fnv1a(input: string): string {

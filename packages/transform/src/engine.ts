@@ -43,24 +43,26 @@ function isSafeKey(key: string): boolean {
 
 function setPath(target: Record<string, unknown>, path: string, value: unknown): void {
   const parts = path.split('.');
-  if (!parts.every(isSafeKey)) return;
   let cur: Record<string, unknown> = target;
   for (let i = 0; i < parts.length - 1; i++) {
     const key = parts[i]!;
+    if (!isSafeKey(key)) return;
     const next = cur[key];
     if (typeof next !== 'object' || next === null) {
       cur[key] = Object.create(null) as Record<string, unknown>;
     }
     cur = cur[key] as Record<string, unknown>;
   }
-  cur[parts[parts.length - 1]!] = value;
+  const last = parts[parts.length - 1]!;
+  if (!isSafeKey(last)) return;
+  cur[last] = value;
 }
 
 function getPath(source: Record<string, unknown>, path: string): unknown {
   const parts = path.split('.');
-  if (!parts.every(isSafeKey)) return undefined;
   let cur: unknown = source;
   for (const key of parts) {
+    if (!isSafeKey(key)) return undefined;
     if (typeof cur !== 'object' || cur === null) return undefined;
     cur = (cur as Record<string, unknown>)[key];
   }
@@ -71,9 +73,9 @@ function getPath(source: Record<string, unknown>, path: string): unknown {
 
 /** YYYYMMDD + HHMM(SS) → advisory ISO-8601 local string (no zone — G2: advisory only). */
 function dateTimeToIso(date: string | undefined, time: string | undefined): string | undefined {
-  if (!date || date.length !== 8) return undefined;
+  if (!date || date.length !== 8 || !/^\d{8}$/.test(date)) return undefined;
   const ymd = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
-  if (!time || time.length < 4) return ymd;
+  if (!time || time.length < 4 || !/^\d{4,6}$/.test(time)) return ymd;
   const hms =
     time.length >= 6
       ? `${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}`
