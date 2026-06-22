@@ -36,13 +36,21 @@ interface EdiSnapshot {
 
 // ----- pure path helpers (no `any` at the boundary) -----------------------------
 
+/** Reject keys that could pollute Object.prototype (defense-in-depth; map paths are authored, not user input). */
+function isSafeKey(key: string): boolean {
+  return key !== '__proto__' && key !== 'constructor' && key !== 'prototype';
+}
+
 function setPath(target: Record<string, unknown>, path: string, value: unknown): void {
   const parts = path.split('.');
+  if (!parts.every(isSafeKey)) return;
   let cur: Record<string, unknown> = target;
   for (let i = 0; i < parts.length - 1; i++) {
     const key = parts[i]!;
     const next = cur[key];
-    if (typeof next !== 'object' || next === null) cur[key] = {};
+    if (typeof next !== 'object' || next === null) {
+      cur[key] = Object.create(null) as Record<string, unknown>;
+    }
     cur = cur[key] as Record<string, unknown>;
   }
   cur[parts[parts.length - 1]!] = value;
@@ -50,6 +58,7 @@ function setPath(target: Record<string, unknown>, path: string, value: unknown):
 
 function getPath(source: Record<string, unknown>, path: string): unknown {
   const parts = path.split('.');
+  if (!parts.every(isSafeKey)) return undefined;
   let cur: unknown = source;
   for (const key of parts) {
     if (typeof cur !== 'object' || cur === null) return undefined;
