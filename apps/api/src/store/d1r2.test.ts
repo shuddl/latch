@@ -40,6 +40,19 @@ class FakeD1 {
   prepare(sql: string) {
     return new FakeStmt(this.db.prepare(sql));
   }
+  // Mirrors D1's atomic batch with a real transaction.
+  async batch(stmts: FakeStmt[]) {
+    this.db.exec('BEGIN');
+    try {
+      const results = [];
+      for (const s of stmts) results.push(await s.run());
+      this.db.exec('COMMIT');
+      return results;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
 }
 
 class FakeR2 {

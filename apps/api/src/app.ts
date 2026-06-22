@@ -185,6 +185,13 @@ export function createApp(getStore: (env: Env) => Store): Hono<AppEnv> {
         );
       }
 
+      if (artifact.direction !== connection.direction) {
+        throw new LatchError(
+          'VALIDATION',
+          `Map direction (${artifact.direction}) must match the connection direction (${connection.direction}).`,
+        );
+      }
+
       const record = await store.createMap(tenantId, {
         connectionId: connection.id,
         transactionSet: connection.transactionSet,

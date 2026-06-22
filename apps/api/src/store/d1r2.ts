@@ -218,21 +218,21 @@ export class D1R2Store implements Store {
 
     // A map must reference a spec (schema FK). For a directly-registered map we record a
     // minimal spec capturing the set/version; the spec ingestor (M1.1) will supersede it.
+    // The spec + map rows are written atomically (db.batch) so a failure can't orphan a spec.
     const specId = newId('spec');
     const specKey = `specs/${tenantId}/${specId}.json`;
+    const id = newId('map');
+    const rulesKey = `maps/${tenantId}/${id}.json`;
     await this.putJson(specKey, { source: 'manual-map-registration', transactionSet: data.transactionSet });
-    await this.db
+    await this.putJson(rulesKey, data.artifact);
+
+    const specStmt = this.db
       .prepare(
         `INSERT INTO specs (id, tenant_id, partner_id, transaction_set, x12_version, spec_json_r2, spec_hash, version, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       )
-      .bind(specId, tenantId, conn.partnerId, data.transactionSet, conn.x12Version, specKey, data.compiledHash, ts, ts)
-      .run();
-
-    const id = newId('map');
-    const rulesKey = `maps/${tenantId}/${id}.json`;
-    await this.putJson(rulesKey, data.artifact);
-    await this.db
+      .bind(specId, tenantId, conn.partnerId, data.transactionSet, conn.x12Version, specKey, data.compiledHash, ts, ts);
+    const mapStmt = this.db
       .prepare(
         `INSERT INTO maps (id, tenant_id, connection_id, spec_id, direction, transaction_set, canonical_version, rules_json_r2, compiled_hash, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`,
@@ -249,8 +249,8 @@ export class D1R2Store implements Store {
         data.compiledHash,
         ts,
         ts,
-      )
-      .run();
+      );
+    await this.db.batch([specStmt, mapStmt]);
 
     return {
       id,
@@ -328,22 +328,22 @@ export class D1R2Store implements Store {
     const specId = str(map['spec_id']);
 
     // Persist the corpus the cert was run against (schema FK on certification_runs).
+    // Corpus + cert rows are written atomically (db.batch) — no orphaned corpus on failure.
     const corpusId = newId('golden');
     const corpusKey = `corpora/${tenantId}/${corpusId}.json`;
+    const id = newId('cert');
+    const resultKey = `certs/${tenantId}/${id}.json`;
     await this.putJson(corpusKey, { corpusHash: data.result.corpusHash });
-    await this.db
+    await this.putJson(resultKey, data.result);
+    const d = data.result.dimensions;
+
+    const corpusStmt = this.db
       .prepare(
         `INSERT INTO golden_corpora (id, tenant_id, spec_id, corpus_r2, counts, corpus_hash, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .bind(corpusId, tenantId, specId, corpusKey, JSON.stringify({}), data.result.corpusHash, ts)
-      .run();
-
-    const id = newId('cert');
-    const resultKey = `certs/${tenantId}/${id}.json`;
-    await this.putJson(resultKey, data.result);
-    const d = data.result.dimensions;
-    await this.db
+      .bind(corpusId, tenantId, specId, corpusKey, JSON.stringify({}), data.result.corpusHash, ts);
+    const certStmt = this.db
       .prepare(
         `INSERT INTO certification_runs (id, tenant_id, map_id, corpus_id, passed, required_coverage, qualifier_coverage, roundtrip_fidelity, adversarial_ok, field_results_r2, shadow, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
@@ -360,8 +360,8 @@ export class D1R2Store implements Store {
         d['adversarialGraceful']?.value ?? 0,
         resultKey,
         ts,
-      )
-      .run();
+      );
+    await this.db.batch([corpusStmt, certStmt]);
 
     return this.assembleCertification(id, tenantId, data, ts);
   }
@@ -413,10 +413,10 @@ export class D1R2Store implements Store {
       passed: num(r['passed']) === 1,
       requiredCoverage: num(r['required_coverage']),
       qualifierCoverage: num(r['qualifier_coverage']),
-      loopCoverage: full?.dimensions['loopCoverage']?.value ?? 0,
+      loopCoverage: full?.dimensions?.['loopCoverage']?.value ?? 0,
       roundtripFidelity: num(r['roundtrip_fidelity']),
       adversarialOk: num(r['adversarial_ok']),
-      deviationHandling: full?.dimensions['deviationHandling']?.value ?? 0,
+      deviationHandling: full?.dimensions?.['deviationHandling']?.value ?? 0,
       shortfalls: full?.shortfalls ?? [],
       mapHash: full?.mapHash ?? '',
       corpusHash: str(r['corpus_id']) ? (full?.corpusHash ?? '') : '',

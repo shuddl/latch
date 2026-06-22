@@ -133,6 +133,20 @@ describe('control-plane API', () => {
     expect(live.status).toBe(409);
   });
 
+  it('rejects a map whose direction does not match the connection', async () => {
+    const partner = await h.json(await h.call('/v1/partners', { method: 'POST', body: { name: 'R&L' } }));
+    const conn = await h.json(
+      await h.call('/v1/connections', {
+        method: 'POST',
+        body: { partnerId: partner.id, direction: 'inbound', transactionSet: '214', connectivity: { type: 'sftp' } },
+      }),
+    );
+    const outboundMap = { ...MAP_214_STATUSEVENT, compiledHash: undefined, direction: 'outbound' };
+    const res = await h.call(`/v1/connections/${conn.id}/maps`, { method: 'POST', body: { rules: outboundMap } });
+    expect(res.status).toBe(400);
+    expect((await h.json(res)).error.code).toBe('VALIDATION');
+  });
+
   it('certify without samples is a clean 400', async () => {
     const partner = await h.json(await h.call('/v1/partners', { method: 'POST', body: { name: 'X' } }));
     const conn = await h.json(
