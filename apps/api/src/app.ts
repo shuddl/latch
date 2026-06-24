@@ -316,8 +316,41 @@ export function createApp(
       ...(result.passed ? { status: 'certified' as const } : {}),
     });
 
+    // The Spec Library accretes on every PASSING cert — each pass is independent proof that
+    // this spec works (docs/04 the moat). Best-effort: never fail the cert on a library hiccup.
+    if (result.passed) {
+      try {
+        const connection = await store.getConnection(tenantId, record.connectionId);
+        if (connection) {
+          await store.accreteSpecLibrary(tenantId, {
+            partnerSignature: `${tenantId}::${connection.partnerId}`,
+            transactionSet: record.transactionSet,
+            x12Version: artifact.x12Version,
+            spec: artifact,
+          });
+        }
+      } catch (err) {
+        c.get('log').error('spec-library accretion failed (non-fatal)', { error: String(err) });
+      }
+    }
+
     c.get('log').info('certification complete', { mapId, certId: cert.id, passed: result.passed });
     return c.json(cert, result.passed ? 200 : 422);
+  });
+
+  // The accreting Spec Library — proven specs available for reuse (the network moat).
+  app.get('/v1/spec-library', async (c) => {
+    const { transactionSet } = c.req.query();
+    return c.json(
+      await c.get('store').listSpecLibrary(c.get('tenantId'), {
+        ...(transactionSet ? { transactionSet } : {}),
+      }),
+    );
+  });
+  app.get('/v1/spec-library/:id', async (c) => {
+    const spec = await c.get('store').getSpecLibrarySpec(c.get('tenantId'), c.req.param('id'));
+    if (!spec) throw new LatchError('NOT_FOUND', 'Spec not found');
+    return c.json(spec);
   });
 
   app.get('/v1/certifications/:id', async (c) => {

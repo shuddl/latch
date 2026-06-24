@@ -110,6 +110,31 @@ describe('control-plane API', () => {
     expect(detail.latestCert.passed).toBe(true);
   });
 
+  it('accretes the Spec Library on a passing certification, exposed via /v1/spec-library', async () => {
+    const { conn, map } = await onboardCertified(h);
+    // Before certifying, the library is empty.
+    expect(await h.json(await h.call('/v1/spec-library'))).toHaveLength(0);
+
+    await h.call(`/v1/maps/${map.id}/certify`, { method: 'POST', body: {} });
+
+    const lib = await h.json(await h.call('/v1/spec-library'));
+    expect(lib).toHaveLength(1);
+    expect(lib[0].transactionSet).toBe('214');
+    expect(lib[0].provenByCerts).toBe(1);
+
+    // Re-certifying the same connection's map increments the proof count, not the entry count.
+    await h.call(`/v1/maps/${map.id}/certify`, { method: 'POST', body: {} });
+    const lib2 = await h.json(await h.call('/v1/spec-library'));
+    expect(lib2).toHaveLength(1);
+    expect(lib2[0].provenByCerts).toBe(2);
+
+    // The proven spec is fetchable and is a real map artifact.
+    const spec = await h.json(await h.call(`/v1/spec-library/${lib2[0].id}`));
+    expect(spec.transactionSet).toBe('214');
+    expect(spec.recordKind).toBe('StatusEvent');
+    void conn;
+  });
+
   it('processes live inbound traffic: ingest → transaction + 997, dedup, replay', async () => {
     const { conn, map } = await onboardCertified(h);
     await h.call(`/v1/maps/${map.id}/certify`, { method: 'POST', body: {} });
