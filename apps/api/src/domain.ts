@@ -112,6 +112,21 @@ export const mapRecordSchema = z.object({
 });
 export type MapRecord = z.infer<typeof mapRecordSchema>;
 
+// ── Spec Library (the accreting moat: every passing cert proves a reusable spec) ──────
+// One entry per (partnerSignature, transactionSet, x12Version). `provenByCerts` counts how
+// many independent certifications have proven this spec. The cross-tenant/anonymized network
+// effect is gated on the anonymization policy (REVIEW.md D5); until then the signature
+// embeds the tenant, so entries are tenant-isolated.
+export const specLibraryEntrySchema = z.object({
+  id: z.string(),
+  partnerSignature: z.string(),
+  transactionSet: z.string(),
+  x12Version: z.string(),
+  provenByCerts: z.number().int(),
+  lastSeenAt: z.number(),
+});
+export type SpecLibraryEntry = z.infer<typeof specLibraryEntrySchema>;
+
 export const certificationSchema = z.object({
   id: z.string(),
   tenantId: z.string(),

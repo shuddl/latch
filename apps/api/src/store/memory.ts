@@ -5,8 +5,9 @@ import { newId } from '@latch/shared';
 import type { MapArtifact } from '@latch/transform';
 import type { CertificationResult } from '@latch/verify';
 import type { CanonicalRecord } from '@latch/canonical';
-import type { Certification, Connection, DriftEvent, DriftStatus, MapRecord, Partner, Transaction } from '../domain';
+import type { Certification, Connection, DriftEvent, DriftStatus, MapRecord, Partner, SpecLibraryEntry, Transaction } from '../domain';
 import type {
+  AccreteSpecData,
   Clock,
   ControlNumbers,
   CreateCertificationData,
@@ -62,6 +63,8 @@ function clone<T>(value: T): T {
 
 export class InMemoryStore implements Store {
   private readonly tenants = new Map<string, TenantData>();
+  // Cross-tenant by design (the Spec Library moat); keyed by signature|set|version.
+  private readonly specLib = new Map<string, { entry: SpecLibraryEntry; spec: MapArtifact }>();
   constructor(private readonly now: Clock = () => Date.now()) {}
 
   private t(tenantId: string): TenantData {
@@ -207,6 +210,46 @@ export class InMemoryStore implements Store {
   }
   async getCertificationResult(tenantId: string, id: string): Promise<CertificationResult | null> {
     return clone(this.t(tenantId).certResults.get(id) ?? null);
+  }
+
+  // Spec Library is cross-tenant BY DESIGN (the network moat), so it lives outside the
+  // per-tenant buckets; isolation is via the tenant-embedding signature prefix until the
+  // anonymization policy enables sharing.
+  async accreteSpecLibrary(tenantId: string, data: AccreteSpecData): Promise<SpecLibraryEntry> {
+    const ukey = `${data.partnerSignature}|${data.transactionSet}|${data.x12Version}`;
+    const existing = this.specLib.get(ukey);
+    if (existing) {
+      existing.entry.provenByCerts += 1;
+      existing.entry.lastSeenAt = this.now();
+      existing.spec = clone(data.spec);
+      return clone(existing.entry);
+    }
+    const entry: SpecLibraryEntry = {
+      id: newId('spec'),
+      partnerSignature: data.partnerSignature,
+      transactionSet: data.transactionSet,
+      x12Version: data.x12Version,
+      provenByCerts: 1,
+      lastSeenAt: this.now(),
+    };
+    this.specLib.set(ukey, { entry, spec: clone(data.spec) });
+    return clone(entry);
+  }
+  async listSpecLibrary(tenantId: string, filter?: { transactionSet?: string }): Promise<SpecLibraryEntry[]> {
+    const prefix = `${tenantId}::`;
+    return [...this.specLib.values()]
+      .map((v) => v.entry)
+      .filter((e) => e.partnerSignature.startsWith(prefix))
+      .filter((e) => !filter?.transactionSet || e.transactionSet === filter.transactionSet)
+      .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+      .map((e) => clone(e));
+  }
+  async getSpecLibrarySpec(tenantId: string, id: string): Promise<MapArtifact | null> {
+    const prefix = `${tenantId}::`;
+    for (const v of this.specLib.values()) {
+      if (v.entry.id === id && v.entry.partnerSignature.startsWith(prefix)) return clone(v.spec);
+    }
+    return null;
   }
 
   async createTransaction(tenantId: string, data: CreateTransactionData): Promise<Transaction> {

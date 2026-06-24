@@ -16,6 +16,7 @@ import type {
   DriftStatus,
   MapRecord,
   Partner,
+  SpecLibraryEntry,
   Transaction,
   TransactionStatus,
 } from '../domain';
@@ -35,6 +36,15 @@ export interface CreateCertificationData {
   mapId: string;
   connectionId: string;
   result: CertificationResult;
+}
+
+export interface AccreteSpecData {
+  /** Tenant-embedding fingerprint of the partner identity (caller computes it). */
+  partnerSignature: string;
+  transactionSet: string;
+  x12Version: string;
+  /** The proven map artifact to store as the reusable spec. */
+  spec: MapArtifact;
 }
 
 export interface ControlNumbers {
@@ -106,6 +116,11 @@ export interface Store {
   createCertification(tenantId: string, data: CreateCertificationData): Promise<Certification>;
   getCertification(tenantId: string, id: string): Promise<Certification | null>;
   getCertificationResult(tenantId: string, id: string): Promise<CertificationResult | null>;
+
+  // Spec Library (accretes on every passing cert; tenant-scoped via the signature prefix)
+  accreteSpecLibrary(tenantId: string, data: AccreteSpecData): Promise<SpecLibraryEntry>;
+  listSpecLibrary(tenantId: string, filter?: { transactionSet?: string }): Promise<SpecLibraryEntry[]>;
+  getSpecLibrarySpec(tenantId: string, id: string): Promise<MapArtifact | null>;
 
   // Transactions (live traffic; bodies as blobs)
   createTransaction(tenantId: string, data: CreateTransactionData): Promise<Transaction>;

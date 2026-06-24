@@ -115,6 +115,43 @@ export function runStoreContract(makeStore: () => Promise<Store> | Store) {
     expect(full?.corpusHash).toBe('corpus_test');
   });
 
+  it('spec library: accretes on cert, counts proofs, isolates tenants by signature', async () => {
+    const { map } = await seedMap(store, 'default');
+    const artifact = (await store.getMapArtifact('default', map.id))!;
+    const base = { transactionSet: '214', x12Version: '004010', spec: artifact };
+
+    const first = await store.accreteSpecLibrary('default', { partnerSignature: 'default::p1', ...base });
+    expect(first.provenByCerts).toBe(1);
+    // A second passing cert for the same (signature, set, version) increments the proof count.
+    const second = await store.accreteSpecLibrary('default', { partnerSignature: 'default::p1', ...base });
+    expect(second.id).toBe(first.id);
+    expect(second.provenByCerts).toBe(2);
+
+    // A different tenant's entry is invisible to 'default' (signature-prefix isolation).
+    await store.accreteSpecLibrary('other', { partnerSignature: 'other::p9', ...base });
+    const defaultList = await store.listSpecLibrary('default');
+    expect(defaultList.length).toBe(1);
+    expect(defaultList[0]!.partnerSignature).toBe('default::p1');
+    expect(await store.listSpecLibrary('other')).toHaveLength(1);
+
+    // The proven spec is fetchable; cross-tenant fetch by id is denied.
+    expect((await store.getSpecLibrarySpec('default', first.id))?.transactionSet).toBe('214');
+    expect(await store.getSpecLibrarySpec('other', first.id)).toBeNull();
+
+    // Filter by transaction set.
+    expect(await store.listSpecLibrary('default', { transactionSet: '999' })).toHaveLength(0);
+  });
+
+  it('spec library: tenant ids containing LIKE wildcards stay isolated (exact prefix match)', async () => {
+    const base = { transactionSet: '214', x12Version: '004010', spec: MAP_214_STATUSEVENT };
+    // '_' is a SQL LIKE wildcard; an exact prefix match must not let 'a_b' see 'aXb'.
+    await store.accreteSpecLibrary('a_b', { partnerSignature: 'a_b::p', ...base });
+    await store.accreteSpecLibrary('aXb', { partnerSignature: 'aXb::p', ...base });
+    const ab = await store.listSpecLibrary('a_b');
+    expect(ab).toHaveLength(1);
+    expect(ab[0]!.partnerSignature).toBe('a_b::p');
+  });
+
   it('transactions: create, list, dedup by control numbers, fetch blobs', async () => {
     const { connection, map } = await seedMap(store, 'default');
     const canonical = [

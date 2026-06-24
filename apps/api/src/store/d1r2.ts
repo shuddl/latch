@@ -18,9 +18,11 @@ import type {
   DriftStatus,
   MapRecord,
   Partner,
+  SpecLibraryEntry,
   Transaction,
 } from '../domain';
 import type {
+  AccreteSpecData,
   Clock,
   ControlNumbers,
   CreateCertificationData,
@@ -443,6 +445,66 @@ export class D1R2Store implements Store {
       .first<Row>();
     if (!r) return null;
     return this.getJson<CertificationResult>(str(r['field_results_r2']));
+  }
+
+  // ── Spec Library (global table; tenant-scoped via the signature prefix) ───────────────
+  async accreteSpecLibrary(tenantId: string, data: AccreteSpecData): Promise<SpecLibraryEntry> {
+    const ts = this.now();
+    const existing = await this.db
+      .prepare(`SELECT * FROM spec_library WHERE partner_signature = ? AND transaction_set = ? AND x12_version = ?`)
+      .bind(data.partnerSignature, data.transactionSet, data.x12Version)
+      .first<Row>();
+    if (existing) {
+      const id = str(existing['id']);
+      await this.putJson(str(existing['canonical_spec_r2']), data.spec); // refresh the proven spec
+      const provenByCerts = num(existing['proven_by_certs']) + 1;
+      await this.db
+        .prepare(`UPDATE spec_library SET proven_by_certs = ?, last_seen_at = ? WHERE id = ?`)
+        .bind(provenByCerts, ts, id)
+        .run();
+      return { id, partnerSignature: data.partnerSignature, transactionSet: data.transactionSet, x12Version: data.x12Version, provenByCerts, lastSeenAt: ts };
+    }
+    const id = newId('spec');
+    const specKey = `spec-library/${tenantId}/${id}.json`;
+    await this.putJson(specKey, data.spec);
+    await this.db
+      .prepare(
+        `INSERT INTO spec_library (id, partner_signature, transaction_set, x12_version, canonical_spec_r2, proven_by_certs, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(id, data.partnerSignature, data.transactionSet, data.x12Version, specKey, 1, ts)
+      .run();
+    return { id, partnerSignature: data.partnerSignature, transactionSet: data.transactionSet, x12Version: data.x12Version, provenByCerts: 1, lastSeenAt: ts };
+  }
+  async listSpecLibrary(tenantId: string, filter?: { transactionSet?: string }): Promise<SpecLibraryEntry[]> {
+    // EXACT prefix match via substr — NOT LIKE — so a tenant id containing '_' or '%'
+    // (both LIKE wildcards) can't widen the scope across tenants.
+    const prefix = `${tenantId}::`;
+    const stmt = filter?.transactionSet
+      ? this.db
+          .prepare(`SELECT * FROM spec_library WHERE substr(partner_signature, 1, ?) = ? AND transaction_set = ? ORDER BY last_seen_at DESC`)
+          .bind(prefix.length, prefix, filter.transactionSet)
+      : this.db
+          .prepare(`SELECT * FROM spec_library WHERE substr(partner_signature, 1, ?) = ? ORDER BY last_seen_at DESC`)
+          .bind(prefix.length, prefix);
+    const rows = await stmt.all<Row>();
+    return (rows.results ?? []).map((r) => ({
+      id: str(r['id']),
+      partnerSignature: str(r['partner_signature']),
+      transactionSet: str(r['transaction_set']),
+      x12Version: str(r['x12_version']),
+      provenByCerts: num(r['proven_by_certs']),
+      lastSeenAt: num(r['last_seen_at']),
+    }));
+  }
+  async getSpecLibrarySpec(tenantId: string, id: string): Promise<MapArtifact | null> {
+    const prefix = `${tenantId}::`;
+    const r = await this.db
+      .prepare(`SELECT canonical_spec_r2 FROM spec_library WHERE id = ? AND substr(partner_signature, 1, ?) = ?`)
+      .bind(id, prefix.length, prefix)
+      .first<Row>();
+    if (!r) return null;
+    return this.getJson<MapArtifact>(str(r['canonical_spec_r2']));
   }
 
   // ── Transactions (metadata in D1, bodies in R2) ──────────────────────────────
