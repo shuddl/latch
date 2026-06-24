@@ -5,6 +5,7 @@ import type {
   Certification,
   CertificationReportData,
   Connection,
+  DriftEvent,
   MapRecord,
   Partner,
   Transaction,
@@ -85,4 +86,8 @@ export const api = {
     ),
   listTransactions: (connectionId: string) =>
     call<Transaction[]>(`/v1/connections/${connectionId}/transactions`),
+
+  listDrift: (connectionId: string) => call<DriftEvent[]>(`/v1/connections/${connectionId}/drift`),
+  approveDrift: (id: string) => post<DriftEvent>(`/v1/drift/${id}/approve`, {}),
+  dismissDrift: (id: string) => post<DriftEvent>(`/v1/drift/${id}/dismiss`, {}),
 };

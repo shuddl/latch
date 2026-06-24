@@ -8,6 +8,7 @@ import type { CertificationReportData, Connection } from './types';
 import { SAMPLE_214 } from './samples';
 import { CertProgress } from './components/CertProgress';
 import { CertificationReport } from './components/CertificationReport';
+import { ConnectionDetail } from './components/ConnectionDetail';
 import './App.css';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -17,17 +18,21 @@ type Phase = 'partner' | 'drop' | 'certifying' | 'report';
 
 export function App() {
   const [view, setView] = useState<View>('dashboard');
+  const [detailId, setDetailId] = useState<string | null>(null);
+
   return (
     <>
       <header className="topbar">
-        <span className="wordmark">
+        <button className="wordmark linklike-plain" onClick={() => { setDetailId(null); setView('dashboard'); }}>
           Latch<span className="dot">.</span>
-        </span>
+        </button>
         <span className="spacer" />
         <span className="tag-pill">Certified EDI connections</span>
       </header>
-      {view === 'dashboard' ? (
-        <Dashboard onNew={() => setView('onboard')} />
+      {detailId ? (
+        <ConnectionDetail connectionId={detailId} onBack={() => setDetailId(null)} />
+      ) : view === 'dashboard' ? (
+        <Dashboard onNew={() => setView('onboard')} onOpen={setDetailId} />
       ) : (
         <Onboard onDone={() => setView('dashboard')} />
       )}
@@ -35,7 +40,7 @@ export function App() {
   );
 }
 
-function Dashboard({ onNew }: { onNew: () => void }) {
+function Dashboard({ onNew, onOpen }: { onNew: () => void; onOpen: (id: string) => void }) {
   const [connections, setConnections] = useState<Connection[] | null>(null);
 
   useEffect(() => {
@@ -73,14 +78,14 @@ function Dashboard({ onNew }: { onNew: () => void }) {
       ) : (
         <div className="conn-grid">
           {connections.map((c) => (
-            <div key={c.id} className="card conn-card">
+            <button key={c.id} className="card conn-card" onClick={() => onOpen(c.id)}>
               <div className="row">
                 <span className="health-dot" data-live={c.status === 'production'} />
                 <strong>{c.transactionSet}</strong>
                 <span className="muted">· {c.direction}</span>
               </div>
               <span className="status-chip">{c.status}</span>
-            </div>
+            </button>
           ))}
         </div>
       )}

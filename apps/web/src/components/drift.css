@@ -1,0 +1,84 @@
+.drift-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: var(--border);
+  border-radius: var(--radius);
+  background: var(--proven-soft);
+  font-size: var(--t-sm);
+  color: var(--ink-700);
+}
+
+.drift-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.drift-card {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border: var(--border);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+}
+.drift-card[data-tone='ok'] {
+  border-left: 3px solid var(--proven);
+}
+.drift-card[data-tone='attention'] {
+  border-left: 3px solid var(--attention);
+  background: linear-gradient(180deg, var(--attention-soft), var(--paper-raised) 70%);
+}
+.drift-card[data-tone='muted'] {
+  opacity: 0.7;
+}
+
+.drift-marker {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  color: #fff;
+}
+.drift-card[data-tone='ok'] .drift-marker {
+  background: var(--proven);
+}
+.drift-card[data-tone='attention'] .drift-marker {
+  background: var(--attention);
+}
+.drift-card[data-tone='muted'] .drift-marker {
+  background: var(--ink-300);
+}
+
+.drift-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.drift-time {
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+}
+.drift-text {
+  margin: var(--s-2) 0 0;
+  font-size: var(--t-sm);
+  color: var(--ink-700);
+}
+.drift-actions {
+  display: flex;
+  gap: var(--s-3);
+  margin-top: var(--s-3);
+}
+.drift-actions .btn {
+  padding: var(--s-2) var(--s-4);
+  font-size: var(--t-sm);
+}
