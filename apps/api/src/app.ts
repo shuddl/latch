@@ -7,12 +7,11 @@ import { Hono, type Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { LatchError, createLogger, newId } from '@latch/shared';
 import {
-  MAP_214_STATUSEVENT,
   computeCompiledHash,
   mapArtifactSchema,
   type MapArtifact,
 } from '@latch/transform';
-import { buildCorpus214, certify } from '@latch/verify';
+import { certify } from '@latch/verify';
 import { processInbound } from '@latch/pipeline';
 import { ingestSpec } from '@latch/spec';
 import { generateMap } from '@latch/mapgen';
@@ -26,6 +25,7 @@ import {
   goLiveInput,
 } from './domain';
 import { ingestInbound } from './ingest';
+import { transactionSetDef, SUPPORTED_TRANSACTION_SETS } from './transaction-sets';
 import { z } from 'zod';
 
 const ORG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -192,15 +192,16 @@ export function createApp(
       if (!connection) throw new LatchError('NOT_FOUND', 'Connection not found');
 
       const body = await readJson(c, z.object({ rules: mapArtifactSchema.optional() }).default({}));
+      const def = transactionSetDef(connection.transactionSet);
       let artifact: MapArtifact;
       if (body.rules) {
         artifact = body.rules;
-      } else if (connection.transactionSet === '214') {
-        artifact = MAP_214_STATUSEVENT; // hand-authored stand-in until mapgen (needs Anthropic key)
+      } else if (def) {
+        artifact = def.defaultMap; // hand-authored stand-in (AI mapgen needs the key)
       } else {
         throw new LatchError(
           'UNSUPPORTED',
-          `No generator yet for ${connection.transactionSet}; provide an explicit map in "rules" (mapgen arrives in M3).`,
+          `No default map for ${connection.transactionSet} (supported: ${SUPPORTED_TRANSACTION_SETS}); provide an explicit map in "rules".`,
         );
       }
 
@@ -237,10 +238,11 @@ export function createApp(
           'AI map generation needs ANTHROPIC_API_KEY; register an explicit map instead.',
         );
       }
-      if (connection.transactionSet !== '214') {
+      const def = transactionSetDef(connection.transactionSet);
+      if (!def) {
         throw new LatchError(
           'UNSUPPORTED',
-          `Generation for ${connection.transactionSet} arrives with the M3 record kinds; only 214 today.`,
+          `Generation for ${connection.transactionSet} is not supported yet (supported: ${SUPPORTED_TRANSACTION_SETS}).`,
         );
       }
       const samples = await store.getSamples(tenantId, connection.id);
@@ -258,7 +260,7 @@ export function createApp(
       const artifact = await generateMap(llm, spec, {
         direction: connection.direction,
         canonicalVersion: '1',
-        recordKind: 'StatusEvent',
+        recordKind: def.recordKind,
       });
       const record = await store.createMap(tenantId, {
         connectionId: connection.id,
@@ -284,10 +286,11 @@ export function createApp(
     const artifact = await store.getMapArtifact(tenantId, mapId);
     if (!artifact) throw new LatchError('INTERNAL', 'Map artifact missing');
 
-    if (record.transactionSet !== '214') {
+    const def = transactionSetDef(record.transactionSet);
+    if (!def) {
       throw new LatchError(
         'UNSUPPORTED',
-        `Corpus synthesis for ${record.transactionSet} arrives in M3; only 214 is certifiable today.`,
+        `Corpus synthesis for ${record.transactionSet} is not supported yet (supported: ${SUPPORTED_TRANSACTION_SETS}).`,
       );
     }
     const samples = await store.getSamples(tenantId, record.connectionId);
@@ -295,7 +298,7 @@ export function createApp(
       throw new LatchError('VALIDATION', 'Upload at least one sample EDI file before certifying.');
     }
 
-    const corpus = buildCorpus214(samples[0]!.trim());
+    const corpus = def.buildCorpus(samples[0]!.trim());
     const result = certify(artifact, corpus);
 
     const cert = await store.createCertification(tenantId, {

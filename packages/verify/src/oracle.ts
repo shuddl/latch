@@ -115,12 +115,24 @@ export function differentialOracle(map: MapArtifact, input: string): { match: bo
   const obj = record as unknown as Record<string, unknown>;
   const issues: string[] = [];
   for (const rule of map.rules) {
-    if (rule.kind !== 'element') continue;
-    const expected = readElement(bodyDoc, rule.source);
-    if (expected === undefined || expected === '') continue; // not populated → not required at path
-    const got = getPath(obj, rule.path);
-    if (got !== expected) {
-      issues.push(`${rule.path}: engine has ${JSON.stringify(got)} but source ${formatAddress(rule.source)} is ${JSON.stringify(expected)}`);
+    if (rule.kind === 'element') {
+      const expected = readElement(bodyDoc, rule.source);
+      if (expected === undefined || expected === '') continue; // not populated → not required at path
+      const got = getPath(obj, rule.path);
+      if (got !== expected) {
+        issues.push(`${rule.path}: engine has ${JSON.stringify(got)} but source ${formatAddress(rule.source)} is ${JSON.stringify(expected)}`);
+      }
+    } else if (rule.kind === 'codemap') {
+      // Independently re-apply the declared table to the source code and confirm the
+      // engine placed exactly that canonical value (catches mis-placement / wrong table).
+      const code = readElement(bodyDoc, rule.source);
+      if (code === undefined || code === '') continue;
+      const expected = rule.table[code] ?? (rule.onMiss === 'passthrough' ? code : undefined);
+      if (expected === undefined) continue; // unset-on-miss: engine also leaves it unset
+      const got = getPath(obj, rule.path);
+      if (got !== expected) {
+        issues.push(`${rule.path}: engine has ${JSON.stringify(got)} but codemap of ${formatAddress(rule.source)}="${code}" is ${JSON.stringify(expected)}`);
+      }
     }
   }
   return { match: issues.length === 0, issues };

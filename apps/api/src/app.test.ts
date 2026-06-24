@@ -20,6 +20,11 @@ const FIXTURE_214 = readFileSync(
   'utf8',
 ).trim();
 
+const FIXTURE_990 = readFileSync(
+  fileURLToPath(new URL('../../../fixtures/990/sample-990-001.edi', import.meta.url)),
+  'utf8',
+).trim();
+
 const ENV = {} as Env; // InMemoryStore ignores bindings
 
 // Test-only loose JSON shape so property access in assertions stays readable.
@@ -207,6 +212,35 @@ describe('control-plane API', () => {
     await h.call(`/v1/connections/${conn.id}/samples`, { method: 'POST', body: { samples: [FIXTURE_214] } });
     const res = await h.call(`/v1/connections/${conn.id}/generate-map`, { method: 'POST', body: {} });
     expect(res.status).toBe(422);
+  });
+
+  it('onboards a second transaction set (990) end-to-end via the registry', async () => {
+    const partner = await h.json(await h.call('/v1/partners', { method: 'POST', body: { name: 'Carrier Co' } }));
+    const conn = await h.json(
+      await h.call('/v1/connections', {
+        method: 'POST',
+        body: { partnerId: partner.id, direction: 'inbound', transactionSet: '990', connectivity: { type: 'sftp' } },
+      }),
+    );
+    await h.call(`/v1/connections/${conn.id}/samples`, { method: 'POST', body: { samples: [FIXTURE_990] } });
+
+    // The default 990 map (resolved through the registry) certifies at the bar.
+    const map = await h.json(await h.call(`/v1/connections/${conn.id}/maps`, { method: 'POST', body: {} }));
+    const certRes = await h.call(`/v1/maps/${map.id}/certify`, { method: 'POST', body: {} });
+    expect(certRes.status).toBe(200);
+    expect((await h.json(certRes)).passed).toBe(true);
+
+    await h.call(`/v1/connections/${conn.id}/go-live`, { method: 'POST', body: {} });
+    const ingest = await h.json(
+      await h.call(`/v1/connections/${conn.id}/ingest`, { method: 'POST', body: { raw: FIXTURE_990 } }),
+    );
+    expect(ingest.transaction.status).toBe('transformed');
+    expect(ingest.transaction.transactionSet).toBe('990');
+
+    // The canonical TenderResponse carries the codemapped decision.
+    const detail = await h.json(await h.call(`/v1/transactions/${ingest.transaction.id}`));
+    expect(detail.canonical[0].kind).toBe('TenderResponse');
+    expect(detail.canonical[0].decision).toBe('accept');
   });
 
   it('rejects ingest on a connection that is not live (409)', async () => {

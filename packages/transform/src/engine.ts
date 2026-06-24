@@ -161,6 +161,15 @@ function applyRule(
       }
       return;
     }
+    case 'codemap': {
+      const code = readElement(bodyDoc, rule.source);
+      if (code === undefined || code === '') return;
+      const mapped = rule.table[code];
+      if (mapped !== undefined) setPath(record, rule.path, mapped);
+      else if (rule.onMiss === 'passthrough') setPath(record, rule.path, code);
+      else warnings.push({ code: 'TRANSFORM', message: `No canonical mapping for code "${code}" at ${rule.path}`, path: rule.path });
+      return;
+    }
   }
 }
 

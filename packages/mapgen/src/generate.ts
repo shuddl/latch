@@ -20,6 +20,9 @@ const CANONICAL_FIELDS: Partial<Record<MapArtifact['recordKind'], string>> = {
   StatusEvent:
     'StatusEvent { shipmentId, statusCode, statusDescription?, occurredAt (ISO via derived dateTimeToIso), ' +
     'location.city/state/country?, reasonCode?, references[]: {qualifier,value} }',
+  TenderResponse:
+    'TenderResponse { shipmentId, decision ("accept"|"decline" — use a codemap from the B1 ' +
+    'reservation action code, e.g. {"A":"accept","D":"decline"}), reason? }',
 };
 
 const rulesSchema = z.array(fieldRuleSchema);
@@ -33,6 +36,8 @@ function systemPrompt(opts: GenerateOptions): string {
     '- {"kind":"element","path":"<canonical dot path>","source":{"tag","occurrence":0,"element":<1-based>}}',
     '- {"kind":"const","path":"kind","value":"<RecordKind>"}',
     '- {"kind":"derived","path":"occurredAt","inputs":[{tag,occurrence,element}...],"transform":"dateTimeToIso"}',
+    '- {"kind":"codemap","path":"<canonical enum path>","source":{tag,occurrence,element},"table":{"<code>":"<canonical>"},"onMiss":"unset"}',
+    'Use codemap for any element whose canonical target is a fixed enum (e.g. accept/decline).',
     'Map every populated element from the spec to its canonical field. Output a JSON array of rules only.',
   ].join('\n');
 }

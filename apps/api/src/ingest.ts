@@ -5,11 +5,11 @@
 
 import { processInbound } from '@latch/pipeline';
 import { createEdiCore } from '@latch/edi-core';
-import { buildCorpus214 } from '@latch/verify';
 import { buildBaseline, decideHeal, detectDrift, driftCase, shadowReCertify } from '@latch/heal';
 import type { MapArtifact } from '@latch/transform';
 import type { Connection, DriftEvent, DriftStatus } from './domain';
 import type { Store } from './store/store';
+import { transactionSetDef } from './transaction-sets';
 
 const edi = createEdiCore();
 
@@ -28,7 +28,7 @@ const STATUS_FOR: Record<string, DriftStatus> = {
 };
 
 // Detect drift vs the certified samples; if found, shadow re-certify and record a
-// self-heal event with the policy decision. Deterministic; only 214 today.
+// self-heal event with the policy decision. Deterministic; runs for any supported set.
 async function detectAndRecordDrift(
   store: Store,
   tenantId: string,
@@ -37,7 +37,8 @@ async function detectAndRecordDrift(
   raw: string,
   txnId: string,
 ): Promise<DriftEvent | undefined> {
-  if (connection.transactionSet !== '214') return undefined;
+  const def = transactionSetDef(connection.transactionSet);
+  if (!def) return undefined;
   const samples = await store.getSamples(tenantId, connection.id);
   if (samples.length === 0) return undefined;
 
@@ -51,7 +52,7 @@ async function detectAndRecordDrift(
   const findings = detectDrift(buildBaseline(parsed.map((p) => p.value)), live.value);
   if (findings.length === 0) return undefined;
 
-  const corpus = buildCorpus214(parsed[0]!.raw.trim());
+  const corpus = def.buildCorpus(parsed[0]!.raw.trim());
   const shadow = shadowReCertify(artifact, corpus, driftCase(`drift-${txnId}`, raw));
   const decision = decideHeal(findings, shadow);
 
