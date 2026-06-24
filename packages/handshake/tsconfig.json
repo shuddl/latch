@@ -1,5 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
+  // WebCrypto (Ed25519) + base64 globals: the DOM lib supplies SubtleCrypto/CryptoKey/
+  // BufferSource/btoa/atob, all present on the Workers runtime this package targets.
+  "compilerOptions": { "rootDir": "src", "outDir": "dist", "lib": ["ES2022", "DOM"] },
   "include": ["src/**/*"]
 }

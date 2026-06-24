@@ -149,6 +149,10 @@ importers:
         version: 5.9.3
 
   packages/handshake:
+    dependencies:
+      '@latch/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       typescript:
         specifier: ^5.6.2
