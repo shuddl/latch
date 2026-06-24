@@ -53,6 +53,25 @@ export interface CertificationReportData {
   result: CertificationResult | null;
 }
 
+export type DriftStatus =
+  | 'open'
+  | 'patched_shadow'
+  | 'auto_applied'
+  | 'awaiting_approval'
+  | 'applied'
+  | 'dismissed';
+
+export interface DriftEvent {
+  id: string;
+  connectionId: string;
+  detectedFromTxn?: string;
+  kind: string;
+  detail: string; // JSON: { findings, decision, shadowPassed }
+  status: DriftStatus;
+  createdAt: number;
+  resolvedAt?: number;
+}
+
 export type TransactionStatus = 'received' | 'transformed' | 'delivered' | 'ack_sent' | 'error';
 
 export interface Transaction {
