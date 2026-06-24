@@ -14,14 +14,33 @@ export const LIMITS = {
   maxIngestBytes: 5_000_000, // 5 MB per inbound interchange
 } as const;
 
-const byteLen = (s: string): number => new TextEncoder().encode(s).length;
+/**
+ * True iff `s` fits in `maxBytes` UTF-8 bytes. Computed WITHOUT allocating an encoded copy
+ * (a `TextEncoder().encode()` would allocate ~N bytes just to measure — the very memory
+ * pressure PG-5 exists to prevent), and short-circuits the moment the cap is exceeded, so
+ * an over-limit input is rejected in O(maxBytes) rather than O(input length).
+ */
+function withinByteLimit(s: string, maxBytes: number): boolean {
+  let bytes = 0;
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code < 0xe000) {
+      bytes += 4; // surrogate pair → one code point (4 UTF-8 bytes)
+      i++;
+    } else bytes += 3;
+    if (bytes > maxBytes) return false;
+  }
+  return true;
+}
 
 /** A non-empty EDI/text string bounded to `maxBytes`, with a plain-English overflow message. */
 export const boundedText = (maxBytes: number, label: string): z.ZodString | z.ZodEffects<z.ZodString, string, string> =>
   z
     .string()
     .min(1)
-    .refine((s) => byteLen(s) <= maxBytes, {
+    .refine((s) => withinByteLimit(s, maxBytes), {
       message: `${label} exceeds the ${Math.round(maxBytes / 1_000_000)}MB limit`,
     });
 
