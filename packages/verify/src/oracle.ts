@@ -106,6 +106,33 @@ function windows(segments: EdiSegment[], anchor: string): EdiSegment[][] {
   );
 }
 
+/** Independent group selection (NOT the engine's): the window of the first `anchor`
+ *  occurrence whose 1-based `matchElement` equals `matchValue`, to the next same-tag anchor. */
+function selectGroup(
+  segments: EdiSegment[],
+  anchor: string,
+  matchElement: number,
+  matchValue: string,
+): EdiSegment[] | undefined {
+  let start = -1;
+  for (let i = 0; i < segments.length; i++) {
+    const s = segments[i]!;
+    if (s.tag === anchor && s.elements[matchElement - 1] === matchValue) {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return undefined;
+  let end = segments.length;
+  for (let i = start + 1; i < segments.length; i++) {
+    if (segments[i]!.tag === anchor) {
+      end = i;
+      break;
+    }
+  }
+  return segments.slice(start, end);
+}
+
 /** Re-derive one flat rule's expected value directly from `doc` and compare to the engine's
  *  placement at `target[path]`. Independent of the engine's path logic. */
 function diffChild(
@@ -181,6 +208,23 @@ export function differentialOracle(map: MapArtifact, input: string): { match: bo
         const item = (arr[k] ?? {}) as Record<string, unknown>;
         for (const child of rule.fields) diffChild(child, windowDoc, item, `${rule.path}[${k}].`, issues);
       }
+    } else if (rule.kind === 'group') {
+      const win = selectGroup(body, rule.anchor, rule.match.element, rule.match.equals);
+      const target = getPath(obj, rule.path);
+      if (!win) {
+        // No matching group in the source → the engine must ALSO leave the path unset.
+        // Asserting this catches a phantom-object bug instead of silently skipping.
+        if (target !== undefined) {
+          issues.push(`${rule.path}: engine produced a value but the source has no ${rule.anchor}*${rule.match.equals} group`);
+        }
+        continue;
+      }
+      if (!target || typeof target !== 'object') {
+        issues.push(`${rule.path}: engine did not produce an object for the ${rule.anchor}*${rule.match.equals} group`);
+        continue;
+      }
+      const windowDoc: EdiInterchange = { segments: win, delimiters: bodyDoc.delimiters };
+      for (const child of rule.fields) diffChild(child, windowDoc, target as Record<string, unknown>, `${rule.path}.`, issues);
     }
   }
   return { match: issues.length === 0, issues };

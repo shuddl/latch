@@ -149,6 +149,33 @@ function sliceWindows(segments: EdiSegment[], anchor: string): EdiSegment[][] {
   );
 }
 
+/** The window of the FIRST `anchor` occurrence whose 1-based `matchElement` equals
+ *  `matchValue` (e.g. the N1*BT group), to the next same-tag anchor — or undefined. */
+function groupWindow(
+  segments: EdiSegment[],
+  anchor: string,
+  matchElement: number,
+  matchValue: string,
+): EdiSegment[] | undefined {
+  let start = -1;
+  for (let i = 0; i < segments.length; i++) {
+    const s = segments[i]!;
+    if (s.tag === anchor && s.elements[matchElement - 1] === matchValue) {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return undefined;
+  let end = segments.length;
+  for (let i = start + 1; i < segments.length; i++) {
+    if (segments[i]!.tag === anchor) {
+      end = i;
+      break;
+    }
+  }
+  return segments.slice(start, end);
+}
+
 function applyRule(
   rule: FieldRule,
   bodyDoc: EdiInterchange,
@@ -202,6 +229,15 @@ function applyRule(
         return item;
       });
       setPath(record, rule.path, items); // always set (even []), so required arrays validate
+      return;
+    }
+    case 'group': {
+      const window = groupWindow(bodyDoc.segments, rule.anchor, rule.match.element, rule.match.equals);
+      if (!window) return; // no matching group → leave the (optional) path unset
+      const obj: Record<string, unknown> = {};
+      const windowDoc: EdiInterchange = { segments: window, delimiters: bodyDoc.delimiters };
+      for (const child of rule.fields) applyRule(child, windowDoc, obj, warnings);
+      setPath(record, rule.path, obj);
       return;
     }
   }
@@ -277,6 +313,7 @@ export function fromCanonical(
     (r): r is Extract<FieldRule, { kind: 'element' }> => r.kind === 'element' && !r.cast,
   );
   const loopRules = map.rules.filter((r): r is Extract<FieldRule, { kind: 'loop' }> => r.kind === 'loop');
+  const groupRules = map.rules.filter((r): r is Extract<FieldRule, { kind: 'group' }> => r.kind === 'group');
 
   for (const record of records) {
     const snap = readSnapshot(record);
@@ -305,6 +342,19 @@ export function fromCanonical(
           if (v === undefined || v === null) continue;
           writeElement(windows[k]!, child.source, String(v));
         }
+      }
+    }
+    // Group write-back: the qualifier-selected window's uncast element children.
+    for (const group of groupRules) {
+      const obj = getPath(recordObj, group.path);
+      if (!obj || typeof obj !== 'object') continue;
+      const window = groupWindow(body, group.anchor, group.match.element, group.match.equals);
+      if (!window) continue;
+      for (const child of group.fields) {
+        if (child.kind !== 'element' || child.cast) continue;
+        const v = getPath(obj as Record<string, unknown>, child.path);
+        if (v === undefined || v === null) continue;
+        writeElement(window, child.source, String(v));
       }
     }
     out.push({ tag: 'ST', elements: [...snap.st] });
