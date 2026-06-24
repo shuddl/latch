@@ -71,7 +71,8 @@ function fakeSftp(initial: Record<string, string>): SftpClient & { fs: Record<st
 }
 
 describe('SftpAdapter — real workflow over an injected SSH client', () => {
-  const cfg = { inboundDir: '/in', archiveDir: '/archive', outboundDir: '/out' };
+  // Fixed clock so the unique archive suffix is deterministic in assertions.
+  const cfg = { inboundDir: '/in', archiveDir: '/archive', outboundDir: '/out', now: () => 1_700_000_000_000 };
 
   it('polls the inbound dir and reads file contents', async () => {
     const client = fakeSftp({ '/in/214-1.edi': 'ISA*214~', '/in/214-2.edi': 'ISA*215~', '/other/x.edi': 'nope' });
@@ -81,12 +82,25 @@ describe('SftpAdapter — real workflow over an injected SSH client', () => {
     expect(files.find((f) => f.name === '214-1.edi')?.content).toBe('ISA*214~');
   });
 
-  it('acks by moving the file from inbound to archive (kept for audit/replay)', async () => {
+  it('acks by moving the file to archive with a unique suffix (kept for audit/replay)', async () => {
     const client = fakeSftp({ '/in/214-1.edi': 'ISA*214~' });
     const adapter = new SftpAdapter(client, cfg);
     await adapter.ack('214-1.edi');
     expect(client.fs['/in/214-1.edi']).toBeUndefined();
-    expect(client.fs['/archive/214-1.edi']).toBe('ISA*214~');
+    expect(client.fs['/archive/214-1-1700000000000.edi']).toBe('ISA*214~');
+  });
+
+  it('does not collide when a partner reuses a filename (audit history preserved)', async () => {
+    let t = 1_700_000_000_000;
+    const client = fakeSftp({ '/in/dup.edi': 'first' });
+    const adapter = new SftpAdapter(client, { ...cfg, now: () => t });
+    await adapter.ack('dup.edi'); // archived as dup-...000.edi
+    // The same filename arrives again later.
+    t += 1000;
+    client.fs['/in/dup.edi'] = 'second';
+    await adapter.ack('dup.edi'); // archived as dup-...001000.edi
+    expect(client.fs['/archive/dup-1700000000000.edi']).toBe('first');
+    expect(client.fs['/archive/dup-1700000001000.edi']).toBe('second');
   });
 
   it('drains end-to-end: poll → sink → archive, leaving the inbound dir empty', async () => {
@@ -99,7 +113,7 @@ describe('SftpAdapter — real workflow over an injected SSH client', () => {
     expect(received.map((f) => f.name).sort()).toEqual(['a.edi', 'b.edi']);
     expect(res.processed.sort()).toEqual(['a.edi', 'b.edi']);
     expect(await adapter.poll()).toEqual([]); // inbound drained
-    expect(client.fs['/archive/a.edi']).toBe('A'); // archived, not lost
+    expect(client.fs['/archive/a-1700000000000.edi']).toBe('A'); // archived (suffixed), not lost
   });
 
   it('sends an outbound file into the outbound dir', async () => {

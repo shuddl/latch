@@ -30,9 +30,18 @@ export interface SftpConfig {
   archiveDir: string;
   /** Directory outbound files (997s, outbound sets) are written to. */
   outboundDir: string;
+  /** Clock for the unique archive suffix; injectable so tests are deterministic. Defaults to Date.now. */
+  now?: () => number;
 }
 
 const join = (dir: string, name: string): string => `${dir.replace(/\/$/, '')}/${name}`;
+
+/** `214.edi` → `214-<stamp>.edi` (suffix before the extension). */
+function archivedName(name: string, stamp: number): string {
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0) return `${name}-${stamp}`; // no extension (or dotfile)
+  return `${name.slice(0, dot)}-${stamp}${name.slice(dot)}`;
+}
 
 export class SftpAdapter implements ConnectivityAdapter {
   readonly kind = 'sftp' as const;
@@ -44,15 +53,21 @@ export class SftpAdapter implements ConnectivityAdapter {
 
   async poll(): Promise<InboundFile[]> {
     const names = await this.client.list(this.cfg.inboundDir);
-    const files: InboundFile[] = [];
-    for (const name of names) {
-      files.push({ name, content: await this.client.read(join(this.cfg.inboundDir, name)) });
-    }
-    return files;
+    // Read in parallel — sequential SFTP round-trips would dominate latency. Promise.all
+    // preserves order, so file order matches the listing.
+    return Promise.all(
+      names.map(async (name) => ({ name, content: await this.client.read(join(this.cfg.inboundDir, name)) })),
+    );
   }
 
   async ack(name: string): Promise<void> {
-    await this.client.move(join(this.cfg.inboundDir, name), join(this.cfg.archiveDir, name));
+    // Unique suffix: a partner reusing a filename would otherwise collide in the archive —
+    // either clobbering audit history or failing the rename and reprocessing forever.
+    const stamp = (this.cfg.now ?? (() => Date.now()))();
+    await this.client.move(
+      join(this.cfg.inboundDir, name),
+      join(this.cfg.archiveDir, archivedName(name, stamp)),
+    );
   }
 
   async send(file: OutboundFile): Promise<void> {
