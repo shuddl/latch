@@ -10,12 +10,22 @@ import { newId } from '@latch/shared';
 import type { MapArtifact } from '@latch/transform';
 import type { CertificationResult } from '@latch/verify';
 import type { CanonicalRecord } from '@latch/canonical';
-import type { Certification, Connection, Connectivity, MapRecord, Partner, Transaction } from '../domain';
+import type {
+  Certification,
+  Connection,
+  Connectivity,
+  DriftEvent,
+  DriftStatus,
+  MapRecord,
+  Partner,
+  Transaction,
+} from '../domain';
 import type {
   Clock,
   ControlNumbers,
   CreateCertificationData,
   CreateConnectionData,
+  CreateDriftEventData,
   CreateMapData,
   CreatePartnerData,
   CreateTransactionData,
@@ -561,6 +571,81 @@ export class D1R2Store implements Store {
       .first<Row>();
     if (!r || !optStr(r['canonical_r2'])) return null;
     return this.getJson<CanonicalRecord[]>(str(r['canonical_r2']));
+  }
+
+  // ── Drift events (self-heal) ─────────────────────────────────────────────────
+  async createDriftEvent(tenantId: string, data: CreateDriftEventData): Promise<DriftEvent> {
+    const ts = this.now();
+    const id = newId('drift');
+    await this.db
+      .prepare(
+        `INSERT INTO drift_events (id, tenant_id, connection_id, detected_from_txn, kind, detail, status, created_at, resolved_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        id,
+        tenantId,
+        data.connectionId,
+        data.detectedFromTxn ?? null,
+        data.kind,
+        data.detail,
+        data.status,
+        ts,
+        data.resolvedAt ?? null,
+      )
+      .run();
+    return this.rowToDrift({
+      id,
+      tenant_id: tenantId,
+      connection_id: data.connectionId,
+      detected_from_txn: data.detectedFromTxn ?? null,
+      kind: data.kind,
+      detail: data.detail,
+      status: data.status,
+      created_at: ts,
+      resolved_at: data.resolvedAt ?? null,
+    });
+  }
+  private rowToDrift(r: Row): DriftEvent {
+    return {
+      id: str(r['id']),
+      tenantId: str(r['tenant_id']),
+      connectionId: str(r['connection_id']),
+      ...(optStr(r['detected_from_txn']) ? { detectedFromTxn: str(r['detected_from_txn']) } : {}),
+      kind: str(r['kind']),
+      detail: str(r['detail']),
+      status: str(r['status']) as DriftStatus,
+      createdAt: num(r['created_at']),
+      ...(r['resolved_at'] != null ? { resolvedAt: num(r['resolved_at']) } : {}),
+    };
+  }
+  async getDriftEvent(tenantId: string, id: string): Promise<DriftEvent | null> {
+    const r = await this.db
+      .prepare(`SELECT * FROM drift_events WHERE id = ? AND tenant_id = ?`)
+      .bind(id, tenantId)
+      .first<Row>();
+    return r ? this.rowToDrift(r) : null;
+  }
+  async listDriftEvents(tenantId: string, connectionId: string): Promise<DriftEvent[]> {
+    const { results } = await this.db
+      .prepare(`SELECT * FROM drift_events WHERE tenant_id = ? AND connection_id = ? ORDER BY created_at DESC`)
+      .bind(tenantId, connectionId)
+      .all<Row>();
+    return results.map((r) => this.rowToDrift(r));
+  }
+  async updateDriftEvent(
+    tenantId: string,
+    id: string,
+    patch: { status: DriftStatus; resolvedAt?: number },
+  ): Promise<DriftEvent | null> {
+    const existing = await this.getDriftEvent(tenantId, id);
+    if (!existing) return null;
+    const resolvedAt = patch.resolvedAt ?? existing.resolvedAt ?? null;
+    await this.db
+      .prepare(`UPDATE drift_events SET status = ?, resolved_at = ? WHERE id = ? AND tenant_id = ?`)
+      .bind(patch.status, resolvedAt, id, tenantId)
+      .run();
+    return { ...existing, status: patch.status, ...(resolvedAt != null ? { resolvedAt } : {}) };
   }
 
   // ── Idempotency (KV) ─────────────────────────────────────────────────────────

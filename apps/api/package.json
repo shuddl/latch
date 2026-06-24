@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@latch/canonical": "workspace:*",
+    "@latch/edi-core": "workspace:*",
+    "@latch/heal": "workspace:*",
     "@latch/pipeline": "workspace:*",
     "@latch/shared": "workspace:*",
     "@latch/transform": "workspace:*",

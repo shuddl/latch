@@ -12,6 +12,8 @@ import type {
   CreateConnectionData,
   CreatePartnerData,
   Direction,
+  DriftEvent,
+  DriftStatus,
   MapRecord,
   Partner,
   Transaction,
@@ -53,6 +55,15 @@ export interface CreateTransactionData {
   rawIn: string;
   canonical?: CanonicalRecord[];
   rawOut?: string;
+}
+
+export interface CreateDriftEventData {
+  connectionId: string;
+  detectedFromTxn?: string;
+  kind: string;
+  detail: string;
+  status: DriftStatus;
+  resolvedAt?: number;
 }
 
 export interface IdempotentResponse {
@@ -107,6 +118,16 @@ export interface Store {
   ): Promise<Transaction | null>;
   getTransactionRawIn(tenantId: string, id: string): Promise<string | null>;
   getTransactionCanonical(tenantId: string, id: string): Promise<CanonicalRecord[] | null>;
+
+  // Drift events (self-heal)
+  createDriftEvent(tenantId: string, data: CreateDriftEventData): Promise<DriftEvent>;
+  getDriftEvent(tenantId: string, id: string): Promise<DriftEvent | null>;
+  listDriftEvents(tenantId: string, connectionId: string): Promise<DriftEvent[]>;
+  updateDriftEvent(
+    tenantId: string,
+    id: string,
+    patch: { status: DriftStatus; resolvedAt?: number },
+  ): Promise<DriftEvent | null>;
 
   // Idempotency (mutating requests with an Idempotency-Key)
   getIdempotent(tenantId: string, key: string): Promise<IdempotentResponse | null>;

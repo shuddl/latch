@@ -130,6 +130,38 @@ describe('control-plane API', () => {
     expect(replay.outcome.canonical[0].statusCode).toBe('X1');
   });
 
+  it('self-heals: a drifted file opens a drift event; breaking drift awaits approval', async () => {
+    const { conn, map } = await onboardCertified(h);
+    await h.call(`/v1/maps/${map.id}/certify`, { method: 'POST', body: {} });
+    await h.call(`/v1/connections/${conn.id}/go-live`, { method: 'POST', body: {} });
+
+    // Additive drift: a new qualifier value on L11 — auto-applied, nothing to do.
+    const additive = FIXTURE_214.replace('L11*BOL12345*BM~', 'L11*BOL12345*ZZ~');
+    const r1 = await h.json(await h.call(`/v1/connections/${conn.id}/ingest`, { method: 'POST', body: { raw: additive } }));
+    expect(r1.drift).toBeTruthy();
+    expect(r1.drift.status).toBe('auto_applied');
+
+    // Breaking drift: a brand-new segment — re-certified in shadow, held for approval.
+    // Distinct ST control (part of the dedup key) so it isn't collapsed against the
+    // additive case above, while keeping the interchange internally consistent.
+    const breaking = FIXTURE_214.replace('ST*214*0001~', 'ST*214*0002~').replace(
+      'MS1*MEMPHIS*TN*US~SE*7*0001~',
+      'MS1*MEMPHIS*TN*US~N9*ZP*EXTRA~SE*8*0002~',
+    );
+    const r2 = await h.json(await h.call(`/v1/connections/${conn.id}/ingest`, { method: 'POST', body: { raw: breaking } }));
+    expect(r2.drift.status).toBe('awaiting_approval');
+
+    // The drift timeline lists both; approving the pending one applies it.
+    const list = await h.json(await h.call(`/v1/connections/${conn.id}/drift`));
+    expect(list.length).toBe(2);
+    const approved = await h.json(await h.call(`/v1/drift/${r2.drift.id}/approve`, { method: 'POST', body: {} }));
+    expect(approved.status).toBe('applied');
+
+    // Approving an already-resolved event is a clean conflict.
+    const again = await h.call(`/v1/drift/${r2.drift.id}/approve`, { method: 'POST', body: {} });
+    expect(again.status).toBe(409);
+  });
+
   it('rejects ingest on a connection that is not live (409)', async () => {
     const { conn } = await onboardCertified(h); // certified path not run → still draft
     const res = await h.call(`/v1/connections/${conn.id}/ingest`, { method: 'POST', body: { raw: FIXTURE_214 } });
