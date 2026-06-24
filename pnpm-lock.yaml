@@ -38,6 +38,9 @@ importers:
       '@latch/canonical':
         specifier: workspace:*
         version: link:../../packages/canonical
+      '@latch/connectivity':
+        specifier: workspace:*
+        version: link:../../packages/connectivity
       '@latch/edi-core':
         specifier: workspace:*
         version: link:../../packages/edi-core

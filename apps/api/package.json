@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@latch/canonical": "workspace:*",
+    "@latch/connectivity": "workspace:*",
     "@latch/edi-core": "workspace:*",
     "@latch/heal": "workspace:*",
     "@latch/mapgen": "workspace:*",
