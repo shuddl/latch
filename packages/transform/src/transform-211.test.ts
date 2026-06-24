@@ -21,8 +21,9 @@ describe('transform/toCanonical (211 → BOL) — three party groups + lading lo
     const r = toCanonical(map, doc.value);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    const rec = r.value[0]!;
-    if (rec.kind !== 'BOL') return;
+    const rec = r.value[0];
+    // Throw (not early-return) so a wrong/missing record fails loudly; also narrows the type.
+    if (rec?.kind !== 'BOL') throw new Error(`expected a BOL record, got ${String(rec?.kind)}`);
 
     expect(rec.bolNumber).toBe('BOL77001');
     expect(rec.shipper).toMatchObject({ role: 'shipper', name: 'ACME SHIPPING CO', address: { city: 'CHICAGO' } });
@@ -47,8 +48,9 @@ describe('transform/toCanonical (211 → BOL) — three party groups + lading lo
     const r = toCanonical(map, doc.value);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    const rec = r.value[0]!;
-    if (rec.kind !== 'BOL') return;
+    const rec = r.value[0];
+    // Throw (not early-return) so a wrong/missing record fails loudly; also narrows the type.
+    if (rec?.kind !== 'BOL') throw new Error(`expected a BOL record, got ${String(rec?.kind)}`);
     expect(rec.billTo).toBeUndefined();
     expect(rec.shipper.name).toBe('ACME SHIPPING CO'); // other parties still resolved
   });

@@ -34,7 +34,7 @@ const CANONICAL_FIELDS: Partial<Record<MapArtifact['recordKind'], string>> = {
     'billTo (group on N1 where N1-01="BT": {role(codemap),name,idQualifier,id,address{...}}), ' +
     'charges[] (loop on L1: {code,amount(cast number),description?}) }',
   BOL:
-    'BOL { bolNumber (BOL-03), shipper/consignee (group on N1 where N1-01="SH"/"CN"), ' +
+    'BOL { bolNumber (BOL-03), shipper (group on N1 where N1-01="SH"), consignee (group on N1 where N1-01="CN"), ' +
     'billTo? (group on N1 where N1-01="BT") — each party {role(codemap),name,idQualifier,id,address{...}}, ' +
     'freight[] (loop on AT1: {pieces(cast),weight(cast),weightUom,class,commodity}), ' +
     'references[] (loop on L11, value-first: {qualifier=L11-02,value=L11-01}), specialInstructions? }',
