@@ -142,6 +142,16 @@ export function runStoreContract(makeStore: () => Promise<Store> | Store) {
     expect(await store.listSpecLibrary('default', { transactionSet: '999' })).toHaveLength(0);
   });
 
+  it('spec library: tenant ids containing LIKE wildcards stay isolated (exact prefix match)', async () => {
+    const base = { transactionSet: '214', x12Version: '004010', spec: MAP_214_STATUSEVENT };
+    // '_' is a SQL LIKE wildcard; an exact prefix match must not let 'a_b' see 'aXb'.
+    await store.accreteSpecLibrary('a_b', { partnerSignature: 'a_b::p', ...base });
+    await store.accreteSpecLibrary('aXb', { partnerSignature: 'aXb::p', ...base });
+    const ab = await store.listSpecLibrary('a_b');
+    expect(ab).toHaveLength(1);
+    expect(ab[0]!.partnerSignature).toBe('a_b::p');
+  });
+
   it('transactions: create, list, dedup by control numbers, fetch blobs', async () => {
     const { connection, map } = await seedMap(store, 'default');
     const canonical = [

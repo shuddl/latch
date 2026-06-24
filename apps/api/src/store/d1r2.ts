@@ -477,12 +477,16 @@ export class D1R2Store implements Store {
     return { id, partnerSignature: data.partnerSignature, transactionSet: data.transactionSet, x12Version: data.x12Version, provenByCerts: 1, lastSeenAt: ts };
   }
   async listSpecLibrary(tenantId: string, filter?: { transactionSet?: string }): Promise<SpecLibraryEntry[]> {
-    const like = `${tenantId}::%`;
+    // EXACT prefix match via substr — NOT LIKE — so a tenant id containing '_' or '%'
+    // (both LIKE wildcards) can't widen the scope across tenants.
+    const prefix = `${tenantId}::`;
     const stmt = filter?.transactionSet
       ? this.db
-          .prepare(`SELECT * FROM spec_library WHERE partner_signature LIKE ? AND transaction_set = ? ORDER BY last_seen_at DESC`)
-          .bind(like, filter.transactionSet)
-      : this.db.prepare(`SELECT * FROM spec_library WHERE partner_signature LIKE ? ORDER BY last_seen_at DESC`).bind(like);
+          .prepare(`SELECT * FROM spec_library WHERE substr(partner_signature, 1, ?) = ? AND transaction_set = ? ORDER BY last_seen_at DESC`)
+          .bind(prefix.length, prefix, filter.transactionSet)
+      : this.db
+          .prepare(`SELECT * FROM spec_library WHERE substr(partner_signature, 1, ?) = ? ORDER BY last_seen_at DESC`)
+          .bind(prefix.length, prefix);
     const rows = await stmt.all<Row>();
     return (rows.results ?? []).map((r) => ({
       id: str(r['id']),
@@ -494,9 +498,10 @@ export class D1R2Store implements Store {
     }));
   }
   async getSpecLibrarySpec(tenantId: string, id: string): Promise<MapArtifact | null> {
+    const prefix = `${tenantId}::`;
     const r = await this.db
-      .prepare(`SELECT canonical_spec_r2 FROM spec_library WHERE id = ? AND partner_signature LIKE ?`)
-      .bind(id, `${tenantId}::%`)
+      .prepare(`SELECT canonical_spec_r2 FROM spec_library WHERE id = ? AND substr(partner_signature, 1, ?) = ?`)
+      .bind(id, prefix.length, prefix)
       .first<Row>();
     if (!r) return null;
     return this.getJson<MapArtifact>(str(r['canonical_spec_r2']));
