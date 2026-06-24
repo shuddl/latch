@@ -10,6 +10,8 @@ export interface Env {
   CONNECTION_DO: DurableObjectNamespace;
   HANDSHAKE_DO: DurableObjectNamespace;
   LATCH_DEV_DEFAULT_ORG?: string;
+  // Per-tenant rate limit (requests per 60s window); falls back to the default when unset/invalid.
+  LATCH_RATE_LIMIT?: string;
   // Build/heal-time only (never used in the per-transaction runtime).
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
