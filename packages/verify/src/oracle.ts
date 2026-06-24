@@ -210,8 +210,15 @@ export function differentialOracle(map: MapArtifact, input: string): { match: bo
       }
     } else if (rule.kind === 'group') {
       const win = selectGroup(body, rule.anchor, rule.match.element, rule.match.equals);
-      if (!win) continue; // no matching group in this record → optional path stays unset
       const target = getPath(obj, rule.path);
+      if (!win) {
+        // No matching group in the source → the engine must ALSO leave the path unset.
+        // Asserting this catches a phantom-object bug instead of silently skipping.
+        if (target !== undefined) {
+          issues.push(`${rule.path}: engine produced a value but the source has no ${rule.anchor}*${rule.match.equals} group`);
+        }
+        continue;
+      }
       if (!target || typeof target !== 'object') {
         issues.push(`${rule.path}: engine did not produce an object for the ${rule.anchor}*${rule.match.equals} group`);
         continue;
