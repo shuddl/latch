@@ -320,6 +320,34 @@ describe('control-plane API', () => {
     expect((await h.json(res)).error.code).toBe('VALIDATION');
   });
 
+  it('rejects an oversized sample upload (PG-5 input-size limit)', async () => {
+    const partner = await h.json(await h.call('/v1/partners', { method: 'POST', body: { name: 'Big' } }));
+    const conn = await h.json(
+      await h.call('/v1/connections', {
+        method: 'POST',
+        body: { partnerId: partner.id, direction: 'inbound', transactionSet: '214', connectivity: { type: 'sftp' } },
+      }),
+    );
+    const huge = 'X'.repeat(1_000_001); // 1 byte over the 1MB per-sample cap
+    const res = await h.call(`/v1/connections/${conn.id}/samples`, { method: 'POST', body: { samples: [huge] } });
+    expect(res.status).toBe(400);
+    expect((await h.json(res)).error.code).toBe('VALIDATION');
+  });
+
+  it('rejects too many sample files in one upload (PG-5 count cap)', async () => {
+    const partner = await h.json(await h.call('/v1/partners', { method: 'POST', body: { name: 'Many' } }));
+    const conn = await h.json(
+      await h.call('/v1/connections', {
+        method: 'POST',
+        body: { partnerId: partner.id, direction: 'inbound', transactionSet: '214', connectivity: { type: 'sftp' } },
+      }),
+    );
+    const samples = Array.from({ length: 51 }, () => 'ST*214*1~SE*1*1~');
+    const res = await h.call(`/v1/connections/${conn.id}/samples`, { method: 'POST', body: { samples } });
+    expect(res.status).toBe(400);
+    expect((await h.json(res)).error.code).toBe('VALIDATION');
+  });
+
   it('rejects a connection to an unknown partner', async () => {
     const res = await h.call('/v1/connections', {
       method: 'POST',

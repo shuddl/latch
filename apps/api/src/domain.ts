@@ -3,6 +3,28 @@
 
 import { z } from 'zod';
 
+// ── Input-size limits (PG-5) ─────────────────────────────────────────────────
+// Bound every untrusted free-text/byte input at the boundary so a single request can't
+// exhaust Worker memory. Generous for real freight EDI (a 214 is ~1KB; a companion guide
+// a few hundred KB), tight enough to reject abuse. Byte-measured (EDI is ASCII, but be safe).
+export const LIMITS = {
+  maxSampleBytes: 1_000_000, // 1 MB per sample EDI file
+  maxSamples: 50, // sample files per upload
+  maxGuideBytes: 5_000_000, // 5 MB companion-guide text
+  maxIngestBytes: 5_000_000, // 5 MB per inbound interchange
+} as const;
+
+const byteLen = (s: string): number => new TextEncoder().encode(s).length;
+
+/** A non-empty EDI/text string bounded to `maxBytes`, with a plain-English overflow message. */
+export const boundedText = (maxBytes: number, label: string): z.ZodString | z.ZodEffects<z.ZodString, string, string> =>
+  z
+    .string()
+    .min(1)
+    .refine((s) => byteLen(s) <= maxBytes, {
+      message: `${label} exceeds the ${Math.round(maxBytes / 1_000_000)}MB limit`,
+    });
+
 export const directionSchema = z.enum(['inbound', 'outbound']);
 export type Direction = z.infer<typeof directionSchema>;
 
@@ -109,7 +131,10 @@ export const createConnectionInput = z.object({
 });
 
 export const addSamplesInput = z.object({
-  samples: z.array(z.string().min(1)).min(1, 'At least one sample EDI file is required'),
+  samples: z
+    .array(boundedText(LIMITS.maxSampleBytes, 'A sample EDI file'))
+    .min(1, 'At least one sample EDI file is required')
+    .max(LIMITS.maxSamples, `At most ${LIMITS.maxSamples} sample files per upload`),
 });
 
 export const goLiveInput = z
