@@ -20,9 +20,11 @@ import type { AppEnv, Env } from './env';
 import type { Store } from './store/store';
 import {
   addSamplesInput,
+  boundedText,
   createConnectionInput,
   createPartnerInput,
   goLiveInput,
+  LIMITS,
 } from './domain';
 import { ingestInbound } from './ingest';
 import { transactionSetDef, SUPPORTED_TRANSACTION_SETS } from './transaction-sets';
@@ -249,7 +251,10 @@ export function createApp(
       if (samples.length === 0) {
         throw new LatchError('VALIDATION', 'Upload sample EDI before generating a map.');
       }
-      const body = await readJson(c, z.object({ guideText: z.string().optional() }).default({}));
+      const body = await readJson(
+        c,
+        z.object({ guideText: boundedText(LIMITS.maxGuideBytes, 'The companion guide').optional() }).default({}),
+      );
 
       const { spec, lowConfidence } = await ingestSpec(llm, {
         transactionSet: connection.transactionSet,
@@ -373,7 +378,7 @@ export function createApp(
     const artifact = await store.getMapArtifact(tenantId, connection.activeMapId);
     if (!artifact) throw new LatchError('INTERNAL', 'Active map artifact missing');
 
-    const { raw } = await readJson(c, z.object({ raw: z.string().min(1) }));
+    const { raw } = await readJson(c, z.object({ raw: boundedText(LIMITS.maxIngestBytes, 'The inbound EDI payload') }));
     const result = await ingestInbound(store, tenantId, connection, connection.activeMapId, artifact, raw);
     c.get('log').info('ingest', {
       connectionId: connection.id,

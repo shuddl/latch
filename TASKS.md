@@ -101,8 +101,8 @@ markers; all stubs are explicit (501 DOs, empty `connectivity`/`handshake` packa
 - **PG-2 — Auth:** dev-stub `X-Latch-Dev-Org` header only (intentional, CLAUDE.md §2.3). → M5.1 Clerk.
 - **PG-3 — Observability/alerting:** structured logs + requestId only; no metrics/alerting. → M5.2.
 - **PG-4 — Secret rotation/audit runbook:** not written. → M5.2.
-- **PG-5 — Input size limits:** guide text / samples unbounded (OOM risk). → M1.5 (add max sizes).
-- **PG-6 — Error-message sanitization:** transform/parse errors may include raw segment text; sanitize before returning. → M1.5.
+- **PG-5 — Input size limits:** DONE. Byte-bounded at the boundary (`LIMITS` in `domain.ts`): samples ≤1MB each / ≤50 per upload, guide ≤5MB, ingest payload ≤5MB; clean 400 with a plain-English overflow message.
+- **PG-6 — Error-message sanitization:** VERIFIED clean (no change needed). The global handler returns `LatchError.toEnvelope()` (plain message) or a generic 500; unhandled errors are logged server-side only. Transform/parse error strings are structured (Zod issue messages, parse messages with control numbers) — they never dump raw payload. Re-audit if new error paths are added.
 - **PG-7 — LLM eval/regression set:** no golden guide→spec→map examples to catch prompt regressions. → M1.5.
 - **PG-8 — Share-link token security:** entropy/expiry/revocation unspecified. → M1.6.
 

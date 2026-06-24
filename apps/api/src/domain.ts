@@ -3,6 +3,47 @@
 
 import { z } from 'zod';
 
+// ── Input-size limits (PG-5) ─────────────────────────────────────────────────
+// Bound every untrusted free-text/byte input at the boundary so a single request can't
+// exhaust Worker memory. Generous for real freight EDI (a 214 is ~1KB; a companion guide
+// a few hundred KB), tight enough to reject abuse. Byte-measured (EDI is ASCII, but be safe).
+export const LIMITS = {
+  maxSampleBytes: 1_000_000, // 1 MB per sample EDI file
+  maxSamples: 50, // sample files per upload
+  maxGuideBytes: 5_000_000, // 5 MB companion-guide text
+  maxIngestBytes: 5_000_000, // 5 MB per inbound interchange
+} as const;
+
+/**
+ * True iff `s` fits in `maxBytes` UTF-8 bytes. Computed WITHOUT allocating an encoded copy
+ * (a `TextEncoder().encode()` would allocate ~N bytes just to measure — the very memory
+ * pressure PG-5 exists to prevent), and short-circuits the moment the cap is exceeded, so
+ * an over-limit input is rejected in O(maxBytes) rather than O(input length).
+ */
+function withinByteLimit(s: string, maxBytes: number): boolean {
+  let bytes = 0;
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code < 0xe000) {
+      bytes += 4; // surrogate pair → one code point (4 UTF-8 bytes)
+      i++;
+    } else bytes += 3;
+    if (bytes > maxBytes) return false;
+  }
+  return true;
+}
+
+/** A non-empty EDI/text string bounded to `maxBytes`, with a plain-English overflow message. */
+export const boundedText = (maxBytes: number, label: string): z.ZodString | z.ZodEffects<z.ZodString, string, string> =>
+  z
+    .string()
+    .min(1)
+    .refine((s) => withinByteLimit(s, maxBytes), {
+      message: `${label} exceeds the ${Math.round(maxBytes / 1_000_000)}MB limit`,
+    });
+
 export const directionSchema = z.enum(['inbound', 'outbound']);
 export type Direction = z.infer<typeof directionSchema>;
 
@@ -109,7 +150,10 @@ export const createConnectionInput = z.object({
 });
 
 export const addSamplesInput = z.object({
-  samples: z.array(z.string().min(1)).min(1, 'At least one sample EDI file is required'),
+  samples: z
+    .array(boundedText(LIMITS.maxSampleBytes, 'A sample EDI file'))
+    .min(1, 'At least one sample EDI file is required')
+    .max(LIMITS.maxSamples, `At most ${LIMITS.maxSamples} sample files per upload`),
 });
 
 export const goLiveInput = z
