@@ -59,7 +59,8 @@ export class KvRateLimiter implements RateLimiter {
     const resetSec = windowSec - (nowSec % windowSec);
     try {
       const current = Number((await this.kv.get(k)) ?? '0') + 1;
-      await this.kv.put(k, String(current), { expirationTtl: windowSec });
+      // KV requires expirationTtl >= 60s; clamp so a short window never throws (→ fail-open).
+      await this.kv.put(k, String(current), { expirationTtl: Math.max(60, windowSec) });
       return { allowed: current <= limit, limit, remaining: Math.max(0, limit - current), resetSec };
     } catch {
       // Fail open — a rate-limiter outage must not take down the API.

@@ -41,6 +41,18 @@ describe('KvRateLimiter — soft window over KV', () => {
     expect((await rl.hit('t', 2, 60)).allowed).toBe(false);
   });
 
+  it('clamps expirationTtl to KV minimum (60s) for short windows', async () => {
+    let seenTtl: number | undefined;
+    const kv = {
+      get: async () => null,
+      put: async (_k: string, _v: string, opts?: { expirationTtl?: number }) => {
+        seenTtl = opts?.expirationTtl;
+      },
+    } as unknown as KVNamespace;
+    await new KvRateLimiter(kv).hit('t', 5, 30); // 30s window → must still TTL at >= 60
+    expect(seenTtl).toBe(60);
+  });
+
   it('fails open if KV throws (a limiter outage must not block traffic)', async () => {
     const brokenKv = {
       get: async () => {
@@ -78,6 +90,17 @@ describe('API — per-tenant rate limiting middleware', () => {
 
     // A different tenant has its own budget.
     expect((await app.request('/v1/partners', { headers: { 'X-Latch-Dev-Org': 'beta' } }, ENV)).status).toBe(200);
+  });
+
+  it('treats LATCH_RATE_LIMIT="0" as "no override" (default), not a total lockout', async () => {
+    const rl = new InMemoryRateLimiter();
+    const app = createApp(() => new InMemoryStore(), () => null, () => rl);
+    const zeroEnv = { LATCH_RATE_LIMIT: '0' } as unknown as Env;
+    // If '0' were taken literally as the limit, the very first request would 429.
+    for (let i = 0; i < 5; i++) {
+      const res = await app.request('/v1/partners', { headers: { 'X-Latch-Dev-Org': 'acme' } }, zeroEnv);
+      expect(res.status).toBe(200);
+    }
   });
 
   it('does not limit when no limiter is configured (default)', async () => {

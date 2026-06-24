@@ -92,7 +92,10 @@ export function createApp(
     // Per-tenant rate limit (PG-1). Health is exempt so liveness probes never trip it.
     const limiter = getRateLimiter(c.env);
     if (limiter && c.req.path !== '/v1/health') {
-      const limit = Number(c.env.LATCH_RATE_LIMIT) || RATE_LIMIT_DEFAULT;
+      // Use the override only if it parses to a positive integer; '0'/negative/NaN → default
+      // (treating a stray 0 as "no override" rather than an accidental total lockout).
+      const configured = Math.floor(Number(c.env.LATCH_RATE_LIMIT));
+      const limit = Number.isFinite(configured) && configured > 0 ? configured : RATE_LIMIT_DEFAULT;
       const decision = await limiter.hit(tenantId, limit, RATE_WINDOW_SEC_DEFAULT);
       c.header('X-RateLimit-Limit', String(decision.limit));
       c.header('X-RateLimit-Remaining', String(decision.remaining));
