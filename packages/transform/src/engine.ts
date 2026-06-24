@@ -137,6 +137,18 @@ function applyRules(map: MapArtifact, set: RawSet): Result<CanonicalRecord> {
   return ok(parsed.data, warnings);
 }
 
+/** Slice a segment list into per-iteration windows: each `anchor` occurrence opens a
+ *  window that runs to (but excludes) the next same-tag anchor, or the end of the list. */
+function sliceWindows(segments: EdiSegment[], anchor: string): EdiSegment[][] {
+  const starts: number[] = [];
+  segments.forEach((s, i) => {
+    if (s.tag === anchor) starts.push(i);
+  });
+  return starts.map((start, k) =>
+    segments.slice(start, k + 1 < starts.length ? starts[k + 1] : segments.length),
+  );
+}
+
 function applyRule(
   rule: FieldRule,
   bodyDoc: EdiInterchange,
@@ -149,7 +161,14 @@ function applyRule(
       return;
     case 'element': {
       const value = readElement(bodyDoc, rule.source);
-      if (value !== undefined && value !== '') setPath(record, rule.path, value);
+      if (value === undefined || value === '') return;
+      if (rule.cast === 'number') {
+        const n = Number(value);
+        if (Number.isFinite(n)) setPath(record, rule.path, n);
+        else warnings.push({ code: 'TRANSFORM', message: `Could not parse number for ${rule.path} from "${value}"`, path: rule.path });
+      } else {
+        setPath(record, rule.path, value);
+      }
       return;
     }
     case 'derived': {
@@ -170,6 +189,16 @@ function applyRule(
       if (mapped !== undefined) setPath(record, rule.path, mapped);
       else if (rule.onMiss === 'passthrough') setPath(record, rule.path, code);
       else warnings.push({ code: 'TRANSFORM', message: `No canonical mapping for code "${code}" at ${rule.path}`, path: rule.path });
+      return;
+    }
+    case 'loop': {
+      const items = sliceWindows(bodyDoc.segments, rule.anchor).map((window) => {
+        const item: Record<string, unknown> = {};
+        const windowDoc: EdiInterchange = { segments: window, delimiters: bodyDoc.delimiters };
+        for (const child of rule.fields) applyRule(child, windowDoc, item, warnings);
+        return item;
+      });
+      setPath(record, rule.path, items); // always set (even []), so required arrays validate
       return;
     }
   }
@@ -238,7 +267,13 @@ export function fromCanonical(
   out.push({ tag: 'ISA', elements: [...first.interchange] });
   out.push({ tag: 'GS', elements: [...first.group] });
 
-  const elementRules = map.rules.filter((r): r is Extract<FieldRule, { kind: 'element' }> => r.kind === 'element');
+  // Only UNCAST element rules are written back (bidirectional). Cast elements, derived,
+  // codemap, and loop-derived scalars are forward-only — their source bytes ride in the
+  // snapshot, so re-serialization never loses the original lexical form (G1/G2).
+  const elementRules = map.rules.filter(
+    (r): r is Extract<FieldRule, { kind: 'element' }> => r.kind === 'element' && !r.cast,
+  );
+  const loopRules = map.rules.filter((r): r is Extract<FieldRule, { kind: 'loop' }> => r.kind === 'loop');
 
   for (const record of records) {
     const snap = readSnapshot(record);
@@ -252,6 +287,22 @@ export function fromCanonical(
       const value = getPath(recordObj, rule.path);
       if (value === undefined || value === null) continue;
       writeElement(body, rule.source, String(value));
+    }
+    // Loop write-back: item i ↔ window i; only uncast element children are written back.
+    for (const loop of loopRules) {
+      const arr = getPath(recordObj, loop.path);
+      if (!Array.isArray(arr)) continue;
+      const windows = sliceWindows(body, loop.anchor);
+      const n = Math.min(windows.length, arr.length);
+      for (let k = 0; k < n; k++) {
+        const item = arr[k] as Record<string, unknown>;
+        for (const child of loop.fields) {
+          if (child.kind !== 'element' || child.cast) continue;
+          const v = getPath(item, child.path);
+          if (v === undefined || v === null) continue;
+          writeElement(windows[k]!, child.source, String(v));
+        }
+      }
     }
     out.push({ tag: 'ST', elements: [...snap.st] });
     out.push(...body);

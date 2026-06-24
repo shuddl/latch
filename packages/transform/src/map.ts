@@ -25,6 +25,14 @@ export const elementRuleSchema = z.object({
   kind: z.literal('element'),
   path: z.string(), // dot path into the canonical record, e.g. 'location.city'
   source: elementAddressSchema,
+  /**
+   * Optional cast of the raw EDI string to a canonical scalar type (e.g. freight weight,
+   * piece count, invoice amount). A cast element is FORWARD-ONLY: it is not written back,
+   * because re-serializing a Number can lose the source's exact lexical form ('01' → '1',
+   * '10.50' → '10.5'). The authoritative source string rides verbatim in the raw snapshot,
+   * so round-trip stays byte-faithful. Uncast elements remain bidirectional.
+   */
+  cast: z.enum(['number']).optional(),
 });
 
 export const constRuleSchema = z.object({
@@ -50,11 +58,39 @@ export const codemapRuleSchema = z.object({
   onMiss: z.enum(['unset', 'passthrough']).default('unset'),
 });
 
+/**
+ * The flat (non-loop) rule kinds. These are the only rules allowed *inside* a loop's
+ * `fields` — loops do not nest in v1, which keeps the engine and the oracles simple.
+ */
+export const childRuleSchema = z.discriminatedUnion('kind', [
+  elementRuleSchema,
+  constRuleSchema,
+  derivedRuleSchema,
+  codemapRuleSchema,
+]);
+export type ChildRule = z.infer<typeof childRuleSchema>;
+
+/**
+ * A repeating loop: each occurrence of `anchor` in the transaction body opens a window
+ * (anchor segment up to, but excluding, the next same-tag anchor — or end of body), and
+ * each window becomes one item in the canonical array at `path`. Child rule addresses are
+ * RELATIVE to the window (occurrence counts restart at 0 per window); child paths are
+ * relative to the item object (e.g. 'party.address.city'). Round-trip is byte-faithful:
+ * item i ↔ window i, with uncast `element` children written back onto the snapshot.
+ */
+export const loopRuleSchema = z.object({
+  kind: z.literal('loop'),
+  path: z.string(),
+  anchor: z.string(), // segment tag that begins each iteration (e.g. 'S5', 'L11')
+  fields: z.array(childRuleSchema),
+});
+
 export const fieldRuleSchema = z.discriminatedUnion('kind', [
   elementRuleSchema,
   constRuleSchema,
   derivedRuleSchema,
   codemapRuleSchema,
+  loopRuleSchema,
 ]);
 export type FieldRule = z.infer<typeof fieldRuleSchema>;
 

@@ -5,10 +5,11 @@ describe('transaction-set registry', () => {
   it('resolves supported sets', () => {
     expect(transactionSetDef('214')?.recordKind).toBe('StatusEvent');
     expect(transactionSetDef('990')?.recordKind).toBe('TenderResponse');
+    expect(transactionSetDef('204')?.recordKind).toBe('Tender');
   });
 
   it('returns undefined for unsupported sets', () => {
-    expect(transactionSetDef('204')).toBeUndefined();
+    expect(transactionSetDef('210')).toBeUndefined();
     expect(transactionSetDef('')).toBeUndefined();
   });
 
