@@ -27,6 +27,7 @@ export function ConnectionDetail({ connectionId, onBack }: { connectionId: strin
     ]).then(([c, t, d]) => {
       if (!alive) return;
       if (c.status === 'fulfilled') setConn(c.value);
+      else setError('Could not load this connection.');
       if (t.status === 'fulfilled') setTxns(t.value);
       if (d.status === 'fulfilled') setDrift(d.value);
     });
@@ -48,6 +49,22 @@ export function ConnectionDetail({ connectionId, onBack }: { connectionId: strin
     }
   }
 
+  // Until the connection itself loads, show a clean loading/error state rather than
+  // flashing zeroed health stats.
+  if (!conn) {
+    return (
+      <main className="container">
+        <div className="page-head">
+          <h1>Connection</h1>
+          <button className="linklike" onClick={onBack}>
+            ← Connections
+          </button>
+        </div>
+        {error ? <div className="error-banner">{error}</div> : <p className="muted">Loading…</p>}
+      </main>
+    );
+  }
+
   const processed = txns.length;
   const acked = txns.filter((t) => t.ackStatus === 'accepted').length;
   const exceptions = txns.filter((t) => t.status === 'error').length;
@@ -57,12 +74,10 @@ export function ConnectionDetail({ connectionId, onBack }: { connectionId: strin
     <main className="container">
       <div className="page-head">
         <div>
-          <h1>{conn ? `${conn.transactionSet} · ${conn.direction}` : 'Connection'}</h1>
-          {conn && (
-            <p className="muted">
-              <span className="health-dot" data-live={conn.status === 'production'} /> {conn.status}
-            </p>
-          )}
+          <h1>{`${conn.transactionSet} · ${conn.direction}`}</h1>
+          <p className="muted">
+            <span className="health-dot" data-live={conn.status === 'production'} /> {conn.status}
+          </p>
         </div>
         <button className="linklike" onClick={onBack}>
           ← Connections
