@@ -8,9 +8,17 @@ import {
   MAP_990_TENDERRESPONSE,
   MAP_204_TENDER,
   MAP_210_INVOICE,
+  MAP_211_BOL,
   type MapArtifact,
 } from '@latch/transform';
-import { buildCorpus214, buildCorpus990, buildCorpus204, buildCorpus210, type GoldenCorpus } from '@latch/verify';
+import {
+  buildCorpus214,
+  buildCorpus990,
+  buildCorpus204,
+  buildCorpus210,
+  buildCorpus211,
+  type GoldenCorpus,
+} from '@latch/verify';
 
 export interface TransactionSetDef {
   /** Canonical record kind this set maps onto (the shared semantic hub). */
@@ -26,6 +34,7 @@ export const TRANSACTION_SETS: Record<string, TransactionSetDef> = {
   '990': { recordKind: 'TenderResponse', defaultMap: MAP_990_TENDERRESPONSE, buildCorpus: buildCorpus990 },
   '204': { recordKind: 'Tender', defaultMap: MAP_204_TENDER, buildCorpus: buildCorpus204 },
   '210': { recordKind: 'Invoice', defaultMap: MAP_210_INVOICE, buildCorpus: buildCorpus210 },
+  '211': { recordKind: 'BOL', defaultMap: MAP_211_BOL, buildCorpus: buildCorpus211 },
 };
 
 /** Lookup a supported transaction set, or `undefined` if Latch can't certify it yet. */
