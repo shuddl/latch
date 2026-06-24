@@ -29,6 +29,10 @@ const CANONICAL_FIELDS: Partial<Record<MapArtifact['recordKind'], string>> = {
     'party{role(codemap on N1 entity code),name,idQualifier,id,address{line1,city,state,postalCode,country}}}), ' +
     'freight[] (loop on AT8: {weight(cast number),weightUom,pieces(cast number)}), ' +
     'references[] (loop on L11: {qualifier,value}) }',
+  Invoice:
+    'Invoice { invoiceNumber, shipmentId?, total(cast number), currency, ' +
+    'billTo (group on N1 where N1-01="BT": {role(codemap),name,idQualifier,id,address{...}}), ' +
+    'charges[] (loop on L1: {code,amount(cast number),description?}) }',
 };
 
 const rulesSchema = z.array(fieldRuleSchema);
@@ -44,6 +48,8 @@ function systemPrompt(opts: GenerateOptions): string {
     '- {"kind":"derived","path":"occurredAt","inputs":[{tag,occurrence,element}...],"transform":"dateTimeToIso"}',
     '- {"kind":"codemap","path":"<canonical enum path>","source":{tag,occurrence,element},"table":{"<code>":"<canonical>"},"onMiss":"unset"}',
     '- {"kind":"loop","path":"<canonical array path>","anchor":"<segment tag>","fields":[<element/const/derived/codemap rules>]}',
+    '- {"kind":"group","path":"<canonical object path>","anchor":"<segment tag>","match":{"element":<1-based>,"equals":"<code>"},"fields":[...]}',
+    'Use group to select ONE qualifier-tagged segment window as a single object (e.g. the N1*BT bill-to party).',
     'Use codemap for any element whose canonical target is a fixed enum (e.g. accept/decline).',
     'Use loop for any repeating segment that maps to a canonical array (stops, freight, charges, references);',
     'inside a loop, element addresses are RELATIVE to the loop window (occurrence restarts at 0 per window),',

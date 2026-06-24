@@ -85,12 +85,31 @@ export const loopRuleSchema = z.object({
   fields: z.array(childRuleSchema),
 });
 
+/**
+ * A qualifier-selected single group: the FIRST `anchor` occurrence whose `match` element
+ * equals the given code opens a window (to the next same-tag anchor), mapped to a single
+ * object at `path` (NOT an array). The freight pattern N1*SH / N1*CN / N1*BT — three party
+ * loops distinguished only by N1-01 — becomes three `group` rules. Child addresses are
+ * relative to the window; round-trip is byte-faithful (uncast element children overlaid).
+ */
+export const groupRuleSchema = z.object({
+  kind: z.literal('group'),
+  path: z.string(),
+  anchor: z.string(),
+  match: z.object({
+    element: z.number().int().positive(), // 1-based element on the anchor segment
+    equals: z.string(),
+  }),
+  fields: z.array(childRuleSchema),
+});
+
 export const fieldRuleSchema = z.discriminatedUnion('kind', [
   elementRuleSchema,
   constRuleSchema,
   derivedRuleSchema,
   codemapRuleSchema,
   loopRuleSchema,
+  groupRuleSchema,
 ]);
 export type FieldRule = z.infer<typeof fieldRuleSchema>;
 
