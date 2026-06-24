@@ -22,7 +22,11 @@ export const TRANSACTION_SETS: Record<string, TransactionSetDef> = {
 
 /** Lookup a supported transaction set, or `undefined` if Latch can't certify it yet. */
 export function transactionSetDef(transactionSet: string): TransactionSetDef | undefined {
-  return TRANSACTION_SETS[transactionSet];
+  // Own-property guard: `transactionSet` is connection-controlled and must not resolve
+  // to an Object.prototype member (e.g. 'constructor') instead of a real registry entry.
+  return Object.prototype.hasOwnProperty.call(TRANSACTION_SETS, transactionSet)
+    ? TRANSACTION_SETS[transactionSet]
+    : undefined;
 }
 
 /** Human-readable list of the currently supported sets, for error messages. */

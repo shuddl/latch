@@ -127,7 +127,9 @@ export function differentialOracle(map: MapArtifact, input: string): { match: bo
       // engine placed exactly that canonical value (catches mis-placement / wrong table).
       const code = readElement(bodyDoc, rule.source);
       if (code === undefined || code === '') continue;
-      const expected = rule.table[code] ?? (rule.onMiss === 'passthrough' ? code : undefined);
+      // Own-property guard: `code` is EDI-controlled and must not resolve to a prototype member.
+      const mapped = Object.prototype.hasOwnProperty.call(rule.table, code) ? rule.table[code] : undefined;
+      const expected = mapped ?? (rule.onMiss === 'passthrough' ? code : undefined);
       if (expected === undefined) continue; // unset-on-miss: engine also leaves it unset
       const got = getPath(obj, rule.path);
       if (got !== expected) {
