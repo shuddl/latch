@@ -66,20 +66,29 @@ export function createAnthropicClient(cfg: AnthropicConfig): LlmClient {
   const doFetch = cfg.fetchImpl ?? fetch;
   return {
     async extractJson({ system, user, maxTokens = 4096 }: LlmExtractOptions): Promise<unknown> {
-      const res = await doFetch(`${baseUrl}/v1/messages`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': cfg.apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          system: `${system}\n\nRespond with ONLY a single JSON value — no prose, no code fences.`,
-          messages: [{ role: 'user', content: user }],
-        }),
-      });
+      let res: Response;
+      try {
+        res = await doFetch(`${baseUrl}/v1/messages`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-api-key': cfg.apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: maxTokens,
+            system: `${system}\n\nRespond with ONLY a single JSON value — no prose, no code fences.`,
+            messages: [{ role: 'user', content: user }],
+          }),
+        });
+      } catch (e) {
+        // Network/transport failure (DNS, TLS, timeout) — surface as a typed gateway error
+        // rather than letting a raw fetch rejection escape the build/heal path.
+        throw new LatchError('INTERNAL', `Failed to reach Anthropic API: ${String(e)}`, {
+          status: 502,
+        });
+      }
       if (!res.ok) {
         throw new LatchError('INTERNAL', `Anthropic API error ${res.status}`, { status: 502 });
       }

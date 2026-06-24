@@ -52,7 +52,7 @@ export async function generateMap(
     });
   }
 
-  const artifact = mapArtifactSchema.parse({
+  const artifact = mapArtifactSchema.safeParse({
     mapVersion: opts.mapVersion ?? '1',
     direction: opts.direction,
     transactionSet: spec.transactionSet,
@@ -61,7 +61,12 @@ export async function generateMap(
     recordKind: opts.recordKind,
     rules: rules.data,
   });
-  return withCompiledHash(artifact);
+  if (!artifact.success) {
+    throw new LatchError('VALIDATION', 'Map generator produced an invalid map artifact', {
+      detail: artifact.error.flatten(),
+    });
+  }
+  return withCompiledHash(artifact.data);
 }
 
 // Self-heal patch proposal (docs/07): given a drift description, propose an UPDATED
@@ -85,7 +90,11 @@ export async function patchMap(
       detail: rules.error.flatten(),
     });
   }
-  return withCompiledHash(
-    mapArtifactSchema.parse({ ...map, compiledHash: undefined, rules: rules.data }),
-  );
+  const patched = mapArtifactSchema.safeParse({ ...map, compiledHash: undefined, rules: rules.data });
+  if (!patched.success) {
+    throw new LatchError('VALIDATION', 'Heal patch produced an invalid map artifact', {
+      detail: patched.error.flatten(),
+    });
+  }
+  return withCompiledHash(patched.data);
 }

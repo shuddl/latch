@@ -35,16 +35,26 @@ interface Resp {
   body: unknown;
 }
 
-/** Parse + Zod-validate a JSON body, raising a typed VALIDATION error on failure. */
+/**
+ * Parse + Zod-validate a JSON body, raising a typed VALIDATION error on failure.
+ * An empty body is treated as `undefined` so endpoints whose schema is fully
+ * optional (e.g. `z.object({...}).default({})`) accept a bodyless POST instead of
+ * 400ing — required-body schemas still reject `undefined` as before.
+ */
 async function readJson<S extends z.ZodTypeAny>(
-  c: { req: { json: () => Promise<unknown> } },
+  c: { req: { text: () => Promise<string> } },
   schema: S,
 ): Promise<z.infer<S>> {
+  const body = (await c.req.text()).trim();
   let raw: unknown;
-  try {
-    raw = await c.req.json();
-  } catch {
-    throw new LatchError('VALIDATION', 'Request body must be valid JSON');
+  if (body === '') {
+    raw = undefined;
+  } else {
+    try {
+      raw = JSON.parse(body);
+    } catch {
+      throw new LatchError('VALIDATION', 'Request body must be valid JSON');
+    }
   }
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
