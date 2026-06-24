@@ -44,12 +44,18 @@ importers:
       '@latch/heal':
         specifier: workspace:*
         version: link:../../packages/heal
+      '@latch/mapgen':
+        specifier: workspace:*
+        version: link:../../packages/mapgen
       '@latch/pipeline':
         specifier: workspace:*
         version: link:../../packages/pipeline
       '@latch/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@latch/spec':
+        specifier: workspace:*
+        version: link:../../packages/spec
       '@latch/transform':
         specifier: workspace:*
         version: link:../../packages/transform
@@ -168,7 +174,26 @@ importers:
         version: 5.9.3
 
   packages/mapgen:
+    dependencies:
+      '@latch/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@latch/spec':
+        specifier: workspace:*
+        version: link:../spec
+      '@latch/transform':
+        specifier: workspace:*
+        version: link:../transform
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
     devDependencies:
+      '@latch/edi-core':
+        specifier: workspace:*
+        version: link:../edi-core
+      '@latch/verify':
+        specifier: workspace:*
+        version: link:../verify
       typescript:
         specifier: ^5.6.2
         version: 5.9.3
@@ -199,6 +224,13 @@ importers:
         version: 5.9.3
 
   packages/spec:
+    dependencies:
+      '@latch/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
     devDependencies:
       typescript:
         specifier: ^5.6.2

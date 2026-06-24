@@ -7,6 +7,8 @@ LATCH_DEV_SUBDOMAIN="latch.tp-freight.com"
 
 # --- AI (build/heal time only — NEVER in the per-transaction runtime) ---
 ANTHROPIC_API_KEY=""
+# Optional build/heal-time model override (default: claude-sonnet-4-6).
+ANTHROPIC_MODEL=""
 
 # --- Dev auth stub (replaced by Clerk at M5) ---
 # Requests send header X-Latch-Dev-Org: <org>; this is the fallback default tenant.

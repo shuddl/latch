@@ -1,2 +1,4 @@
-// @latch/spec — Spec Ingestor (guide+samples → Latch Spec). Built in M1.1 (docs/04,08).
-export const PACKAGE = "spec" as const;
+// @latch/spec — the Spec Ingestor: companion guide + samples → a Latch Spec (docs/04).
+// LLM-assisted at build time, behind @latch/shared's LlmClient; Zod is the gate.
+export * from './latch-spec';
+export * from './ingest';

@@ -14,6 +14,9 @@ import {
 } from '@latch/transform';
 import { buildCorpus214, certify } from '@latch/verify';
 import { processInbound } from '@latch/pipeline';
+import { ingestSpec } from '@latch/spec';
+import { generateMap } from '@latch/mapgen';
+import type { LlmClient } from '@latch/shared';
 import type { AppEnv, Env } from './env';
 import type { Store } from './store/store';
 import {
@@ -32,16 +35,26 @@ interface Resp {
   body: unknown;
 }
 
-/** Parse + Zod-validate a JSON body, raising a typed VALIDATION error on failure. */
+/**
+ * Parse + Zod-validate a JSON body, raising a typed VALIDATION error on failure.
+ * An empty body is treated as `undefined` so endpoints whose schema is fully
+ * optional (e.g. `z.object({...}).default({})`) accept a bodyless POST instead of
+ * 400ing — required-body schemas still reject `undefined` as before.
+ */
 async function readJson<S extends z.ZodTypeAny>(
-  c: { req: { json: () => Promise<unknown> } },
+  c: { req: { text: () => Promise<string> } },
   schema: S,
 ): Promise<z.infer<S>> {
+  const body = (await c.req.text()).trim();
   let raw: unknown;
-  try {
-    raw = await c.req.json();
-  } catch {
-    throw new LatchError('VALIDATION', 'Request body must be valid JSON');
+  if (body === '') {
+    raw = undefined;
+  } else {
+    try {
+      raw = JSON.parse(body);
+    } catch {
+      throw new LatchError('VALIDATION', 'Request body must be valid JSON');
+    }
   }
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
@@ -52,7 +65,10 @@ async function readJson<S extends z.ZodTypeAny>(
   return parsed.data;
 }
 
-export function createApp(getStore: (env: Env) => Store): Hono<AppEnv> {
+export function createApp(
+  getStore: (env: Env) => Store,
+  getLlm: (env: Env) => LlmClient | null = () => null,
+): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   // ── Cross-cutting middleware ───────────────────────────────────────────────
@@ -65,6 +81,7 @@ export function createApp(getStore: (env: Env) => Store): Hono<AppEnv> {
     c.set('requestId', requestId);
     c.set('tenantId', tenantId);
     c.set('store', getStore(c.env));
+    c.set('llm', getLlm(c.env));
     c.set('log', createLogger({ requestId, tenantId, path: c.req.path, method: c.req.method }));
     c.header('X-Request-Id', requestId);
     await next();
@@ -203,6 +220,56 @@ export function createApp(getStore: (env: Env) => Store): Hono<AppEnv> {
         artifact,
       });
       return { status: 201, body: record };
+    }),
+  );
+
+  // ── Generate a map from the guide + samples (build-time AI) ──────────────────
+  app.post('/v1/connections/:id/generate-map', (c) =>
+    idempotent(c, async () => {
+      const store = c.get('store');
+      const tenantId = c.get('tenantId');
+      const llm = c.get('llm');
+      const connection = await store.getConnection(tenantId, c.req.param('id'));
+      if (!connection) throw new LatchError('NOT_FOUND', 'Connection not found');
+      if (!llm) {
+        throw new LatchError(
+          'UNSUPPORTED',
+          'AI map generation needs ANTHROPIC_API_KEY; register an explicit map instead.',
+        );
+      }
+      if (connection.transactionSet !== '214') {
+        throw new LatchError(
+          'UNSUPPORTED',
+          `Generation for ${connection.transactionSet} arrives with the M3 record kinds; only 214 today.`,
+        );
+      }
+      const samples = await store.getSamples(tenantId, connection.id);
+      if (samples.length === 0) {
+        throw new LatchError('VALIDATION', 'Upload sample EDI before generating a map.');
+      }
+      const body = await readJson(c, z.object({ guideText: z.string().optional() }).default({}));
+
+      const { spec, lowConfidence } = await ingestSpec(llm, {
+        transactionSet: connection.transactionSet,
+        x12Version: connection.x12Version,
+        ...(body.guideText ? { guideText: body.guideText } : {}),
+        samples,
+      });
+      const artifact = await generateMap(llm, spec, {
+        direction: connection.direction,
+        canonicalVersion: '1',
+        recordKind: 'StatusEvent',
+      });
+      const record = await store.createMap(tenantId, {
+        connectionId: connection.id,
+        transactionSet: connection.transactionSet,
+        direction: artifact.direction,
+        canonicalVersion: artifact.canonicalVersion,
+        compiledHash: artifact.compiledHash ?? computeCompiledHash(artifact),
+        artifact,
+      });
+      c.get('log').info('map generated', { connectionId: connection.id, mapId: record.id, lowConfidence });
+      return { status: 201, body: { ...record, lowConfidence } };
     }),
   );
 
