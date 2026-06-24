@@ -133,6 +133,31 @@ export const transactionStatusSchema = z.enum([
 ]);
 export type TransactionStatus = z.infer<typeof transactionStatusSchema>;
 
+// ── Drift events (self-heal) ─────────────────────────────────────────────────
+
+export const driftStatusSchema = z.enum([
+  'open',
+  'patched_shadow',
+  'auto_applied',
+  'awaiting_approval',
+  'applied',
+  'dismissed',
+]);
+export type DriftStatus = z.infer<typeof driftStatusSchema>;
+
+export const driftEventSchema = z.object({
+  id: z.string(),
+  tenantId: z.string(),
+  connectionId: z.string(),
+  detectedFromTxn: z.string().optional(),
+  kind: z.string(),
+  detail: z.string(), // JSON: { findings, decision, shadowPassed }
+  status: driftStatusSchema,
+  createdAt: z.number(),
+  resolvedAt: z.number().optional(),
+});
+export type DriftEvent = z.infer<typeof driftEventSchema>;
+
 export const transactionSchema = z.object({
   id: z.string(),
   tenantId: z.string(),

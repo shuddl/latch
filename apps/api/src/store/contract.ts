@@ -162,6 +162,24 @@ export function runStoreContract(makeStore: () => Promise<Store> | Store) {
     });
   });
 
+  it('drift events: create, list, get, resolve', async () => {
+    const { connection } = await seedMap(store, 'default');
+    const ev = await store.createDriftEvent('default', {
+      connectionId: connection.id,
+      kind: 'changed_qualifier',
+      detail: JSON.stringify({ decision: 'auto_applied' }),
+      status: 'auto_applied',
+      resolvedAt: 123,
+    });
+    expect(ev.id).toMatch(/^drf_/);
+    expect(ev.resolvedAt).toBe(123);
+    expect((await store.listDriftEvents('default', connection.id)).length).toBe(1);
+    expect(await store.getDriftEvent('default', ev.id)).toMatchObject({ kind: 'changed_qualifier' });
+    const applied = await store.updateDriftEvent('default', ev.id, { status: 'applied', resolvedAt: 456 });
+    expect(applied?.status).toBe('applied');
+    expect(applied?.resolvedAt).toBe(456);
+  });
+
   it('idempotency: stores and replays a response', async () => {
     expect(await store.getIdempotent('default', 'k1')).toBeNull();
     await store.putIdempotent('default', 'k1', { status: 201, body: { ok: true } });

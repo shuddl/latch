@@ -5,12 +5,13 @@ import { newId } from '@latch/shared';
 import type { MapArtifact } from '@latch/transform';
 import type { CertificationResult } from '@latch/verify';
 import type { CanonicalRecord } from '@latch/canonical';
-import type { Certification, Connection, MapRecord, Partner, Transaction } from '../domain';
+import type { Certification, Connection, DriftEvent, DriftStatus, MapRecord, Partner, Transaction } from '../domain';
 import type {
   Clock,
   ControlNumbers,
   CreateCertificationData,
   CreateConnectionData,
+  CreateDriftEventData,
   CreateMapData,
   CreatePartnerData,
   CreateTransactionData,
@@ -34,6 +35,7 @@ interface TenantData {
   certResults: Map<string, CertificationResult>; // certId → full result
   transactions: Map<string, Transaction>;
   txnBlobs: Map<string, TxnBlobs>; // txnId → raw/canonical/out
+  drift: Map<string, DriftEvent>;
   idempotency: Map<string, IdempotentResponse>;
 }
 
@@ -48,6 +50,7 @@ function emptyTenant(): TenantData {
     certResults: new Map(),
     transactions: new Map(),
     txnBlobs: new Map(),
+    drift: new Map(),
     idempotency: new Map(),
   };
 }
@@ -261,6 +264,46 @@ export class InMemoryStore implements Store {
   }
   async getTransactionCanonical(tenantId: string, id: string): Promise<CanonicalRecord[] | null> {
     return clone(this.t(tenantId).txnBlobs.get(id)?.canonical ?? null);
+  }
+
+  async createDriftEvent(tenantId: string, data: CreateDriftEventData): Promise<DriftEvent> {
+    const event: DriftEvent = {
+      id: newId('drift'),
+      tenantId,
+      connectionId: data.connectionId,
+      ...(data.detectedFromTxn ? { detectedFromTxn: data.detectedFromTxn } : {}),
+      kind: data.kind,
+      detail: data.detail,
+      status: data.status,
+      createdAt: this.now(),
+      ...(data.resolvedAt ? { resolvedAt: data.resolvedAt } : {}),
+    };
+    this.t(tenantId).drift.set(event.id, event);
+    return clone(event);
+  }
+  async getDriftEvent(tenantId: string, id: string): Promise<DriftEvent | null> {
+    return clone(this.t(tenantId).drift.get(id) ?? null);
+  }
+  async listDriftEvents(tenantId: string, connectionId: string): Promise<DriftEvent[]> {
+    return [...this.t(tenantId).drift.values()]
+      .filter((d) => d.connectionId === connectionId)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map(clone);
+  }
+  async updateDriftEvent(
+    tenantId: string,
+    id: string,
+    patch: { status: DriftStatus; resolvedAt?: number },
+  ): Promise<DriftEvent | null> {
+    const existing = this.t(tenantId).drift.get(id);
+    if (!existing) return null;
+    const updated: DriftEvent = {
+      ...existing,
+      status: patch.status,
+      ...(patch.resolvedAt ? { resolvedAt: patch.resolvedAt } : {}),
+    };
+    this.t(tenantId).drift.set(id, updated);
+    return clone(updated);
   }
 
   async getIdempotent(tenantId: string, key: string): Promise<IdempotentResponse | null> {

@@ -353,6 +353,43 @@ export function createApp(getStore: (env: Env) => Store): Hono<AppEnv> {
     return c.json({ transactionId: txn.id, mapId, outcome });
   });
 
+  // ── Self-heal (drift) ────────────────────────────────────────────────────────
+  app.get('/v1/connections/:id/drift', async (c) => {
+    const store = c.get('store');
+    const tenantId = c.get('tenantId');
+    const connection = await store.getConnection(tenantId, c.req.param('id'));
+    if (!connection) throw new LatchError('NOT_FOUND', 'Connection not found');
+    return c.json(await store.listDriftEvents(tenantId, connection.id));
+  });
+
+  app.get('/v1/drift/:id', async (c) => {
+    const ev = await c.get('store').getDriftEvent(c.get('tenantId'), c.req.param('id'));
+    if (!ev) throw new LatchError('NOT_FOUND', 'Drift event not found');
+    return c.json(ev);
+  });
+
+  app.post('/v1/drift/:id/approve', async (c) => {
+    const store = c.get('store');
+    const tenantId = c.get('tenantId');
+    const ev = await store.getDriftEvent(tenantId, c.req.param('id'));
+    if (!ev) throw new LatchError('NOT_FOUND', 'Drift event not found');
+    if (ev.status !== 'awaiting_approval') {
+      throw new LatchError('CONFLICT', `Drift event is ${ev.status}, not awaiting approval.`);
+    }
+    return c.json(await store.updateDriftEvent(tenantId, ev.id, { status: 'applied', resolvedAt: Date.now() }));
+  });
+
+  app.post('/v1/drift/:id/dismiss', async (c) => {
+    const store = c.get('store');
+    const tenantId = c.get('tenantId');
+    const ev = await store.getDriftEvent(tenantId, c.req.param('id'));
+    if (!ev) throw new LatchError('NOT_FOUND', 'Drift event not found');
+    if (ev.status === 'applied' || ev.status === 'dismissed' || ev.status === 'auto_applied') {
+      throw new LatchError('CONFLICT', `Drift event is already resolved (${ev.status}).`);
+    }
+    return c.json(await store.updateDriftEvent(tenantId, ev.id, { status: 'dismissed', resolvedAt: Date.now() }));
+  });
+
   return app;
 }
 

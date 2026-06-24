@@ -1,2 +1,4 @@
-// @latch/heal — drift detection + patch + shadow re-cert. Built in M4 (docs/07).
-export const PACKAGE = "heal" as const;
+// @latch/heal — deterministic drift detection + shadow re-certification + policy
+// (docs/07, the recurring self-heal tier). No LLM in detection or the gate.
+export * from './drift';
+export * from './heal';

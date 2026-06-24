@@ -38,6 +38,12 @@ importers:
       '@latch/canonical':
         specifier: workspace:*
         version: link:../../packages/canonical
+      '@latch/edi-core':
+        specifier: workspace:*
+        version: link:../../packages/edi-core
+      '@latch/heal':
+        specifier: workspace:*
+        version: link:../../packages/heal
       '@latch/pipeline':
         specifier: workspace:*
         version: link:../../packages/pipeline
@@ -140,6 +146,22 @@ importers:
         version: 5.9.3
 
   packages/heal:
+    dependencies:
+      '@latch/canonical':
+        specifier: workspace:*
+        version: link:../canonical
+      '@latch/edi-core':
+        specifier: workspace:*
+        version: link:../edi-core
+      '@latch/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@latch/transform':
+        specifier: workspace:*
+        version: link:../transform
+      '@latch/verify':
+        specifier: workspace:*
+        version: link:../verify
     devDependencies:
       typescript:
         specifier: ^5.6.2
