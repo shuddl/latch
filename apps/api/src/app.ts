@@ -384,6 +384,9 @@ export function createApp(getStore: (env: Env) => Store): Hono<AppEnv> {
     const tenantId = c.get('tenantId');
     const ev = await store.getDriftEvent(tenantId, c.req.param('id'));
     if (!ev) throw new LatchError('NOT_FOUND', 'Drift event not found');
+    if (ev.status === 'applied' || ev.status === 'dismissed' || ev.status === 'auto_applied') {
+      throw new LatchError('CONFLICT', `Drift event is already resolved (${ev.status}).`);
+    }
     return c.json(await store.updateDriftEvent(tenantId, ev.id, { status: 'dismissed', resolvedAt: Date.now() }));
   });
 

@@ -160,6 +160,10 @@ describe('control-plane API', () => {
     // Approving an already-resolved event is a clean conflict.
     const again = await h.call(`/v1/drift/${r2.drift.id}/approve`, { method: 'POST', body: {} });
     expect(again.status).toBe(409);
+
+    // Dismissing an already-resolved (auto-applied) event is likewise a conflict.
+    const dismissResolved = await h.call(`/v1/drift/${r1.drift.id}/dismiss`, { method: 'POST', body: {} });
+    expect(dismissResolved.status).toBe(409);
   });
 
   it('rejects ingest on a connection that is not live (409)', async () => {

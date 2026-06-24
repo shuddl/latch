@@ -41,16 +41,17 @@ async function detectAndRecordDrift(
   const samples = await store.getSamples(tenantId, connection.id);
   if (samples.length === 0) return undefined;
 
-  const parsedSamples = samples
-    .map((s) => edi.parse(s))
-    .flatMap((r) => (r.ok ? [r.value] : []));
+  // Keep raw alongside parsed so the corpus is built from a sample we KNOW parses.
+  const parsed = samples
+    .map((s) => ({ raw: s, result: edi.parse(s) }))
+    .flatMap((p) => (p.result.ok ? [{ raw: p.raw, value: p.result.value }] : []));
   const live = edi.parse(raw);
-  if (parsedSamples.length === 0 || !live.ok) return undefined;
+  if (parsed.length === 0 || !live.ok) return undefined;
 
-  const findings = detectDrift(buildBaseline(parsedSamples), live.value);
+  const findings = detectDrift(buildBaseline(parsed.map((p) => p.value)), live.value);
   if (findings.length === 0) return undefined;
 
-  const corpus = buildCorpus214(samples[0]!.trim());
+  const corpus = buildCorpus214(parsed[0]!.raw.trim());
   const shadow = shadowReCertify(artifact, corpus, driftCase(`drift-${txnId}`, raw));
   const decision = decideHeal(findings, shadow);
 
@@ -97,10 +98,15 @@ export async function ingestInbound(
     ...(outcome.ack ? { rawOut: outcome.ack } : {}),
   });
 
-  const drift =
-    outcome.status === 'transformed'
-      ? await detectAndRecordDrift(store, tenantId, connection, artifact, raw, transaction.id)
-      : undefined;
+  // Drift detection is best-effort: it must never fail the core transaction.
+  let drift: DriftEvent | undefined;
+  if (outcome.status === 'transformed') {
+    try {
+      drift = await detectAndRecordDrift(store, tenantId, connection, artifact, raw, transaction.id);
+    } catch (err) {
+      console.error(JSON.stringify({ msg: 'drift detection failed (non-fatal)', error: String(err) }));
+    }
+  }
 
   return {
     transaction,
