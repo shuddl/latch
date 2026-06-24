@@ -1,0 +1,79 @@
+.cert-progress {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  max-width: 560px;
+}
+.cp-step {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+  border-bottom: 1px dashed var(--ink-100);
+}
+.cp-marker {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  border: 2px solid var(--ink-200);
+  color: var(--ink-300);
+}
+.cp-label {
+  font-size: var(--t-sm);
+  color: var(--ink-300);
+  transition: color 0.2s ease;
+}
+
+.cp-step[data-state='done'] .cp-marker {
+  background: var(--proven);
+  border-color: var(--proven);
+  color: #fff;
+}
+.cp-step[data-state='done'] .cp-label {
+  color: var(--ink-700);
+}
+.cp-step[data-state='failed'] .cp-marker {
+  background: var(--failed);
+  border-color: var(--failed);
+  color: #fff;
+}
+.cp-step[data-state='active'] .cp-marker {
+  border-color: var(--ink-900);
+  position: relative;
+}
+.cp-step[data-state='active'] .cp-marker::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-900);
+  animation: cp-pulse 1s ease-in-out infinite;
+}
+.cp-step[data-state='active'] .cp-label {
+  color: var(--ink-900);
+  font-weight: 550;
+}
+@keyframes cp-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cp-step[data-state='active'] .cp-marker::after {
+    animation: none;
+  }
+}
