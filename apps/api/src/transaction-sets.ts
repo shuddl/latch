@@ -3,8 +3,8 @@
 // builder. Adding a set is one entry here — the maps/generate-map/certify endpoints and
 // the drift path all route through this table instead of scattering `=== '214'` checks.
 
-import { MAP_214_STATUSEVENT, MAP_990_TENDERRESPONSE, type MapArtifact } from '@latch/transform';
-import { buildCorpus214, buildCorpus990, type GoldenCorpus } from '@latch/verify';
+import { MAP_214_STATUSEVENT, MAP_990_TENDERRESPONSE, MAP_204_TENDER, type MapArtifact } from '@latch/transform';
+import { buildCorpus214, buildCorpus990, buildCorpus204, type GoldenCorpus } from '@latch/verify';
 
 export interface TransactionSetDef {
   /** Canonical record kind this set maps onto (the shared semantic hub). */
@@ -18,6 +18,7 @@ export interface TransactionSetDef {
 export const TRANSACTION_SETS: Record<string, TransactionSetDef> = {
   '214': { recordKind: 'StatusEvent', defaultMap: MAP_214_STATUSEVENT, buildCorpus: buildCorpus214 },
   '990': { recordKind: 'TenderResponse', defaultMap: MAP_990_TENDERRESPONSE, buildCorpus: buildCorpus990 },
+  '204': { recordKind: 'Tender', defaultMap: MAP_204_TENDER, buildCorpus: buildCorpus204 },
 };
 
 /** Lookup a supported transaction set, or `undefined` if Latch can't certify it yet. */

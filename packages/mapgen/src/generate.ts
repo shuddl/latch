@@ -23,6 +23,12 @@ const CANONICAL_FIELDS: Partial<Record<MapArtifact['recordKind'], string>> = {
   TenderResponse:
     'TenderResponse { shipmentId, decision ("accept"|"decline" — use a codemap from the B1 ' +
     'reservation action code, e.g. {"A":"accept","D":"decline"}), reason? }',
+  Tender:
+    'Tender { shipmentId, scac?, purpose ("original"|"cancel"|"replace" via codemap from B2A), ' +
+    'stops[] (loop on S5: {sequence(cast number), type("pickup"|"delivery" via codemap on S5 reason), ' +
+    'party{role(codemap on N1 entity code),name,idQualifier,id,address{line1,city,state,postalCode,country}}}), ' +
+    'freight[] (loop on AT8: {weight(cast number),weightUom,pieces(cast number)}), ' +
+    'references[] (loop on L11: {qualifier,value}) }',
 };
 
 const rulesSchema = z.array(fieldRuleSchema);
@@ -37,7 +43,11 @@ function systemPrompt(opts: GenerateOptions): string {
     '- {"kind":"const","path":"kind","value":"<RecordKind>"}',
     '- {"kind":"derived","path":"occurredAt","inputs":[{tag,occurrence,element}...],"transform":"dateTimeToIso"}',
     '- {"kind":"codemap","path":"<canonical enum path>","source":{tag,occurrence,element},"table":{"<code>":"<canonical>"},"onMiss":"unset"}',
+    '- {"kind":"loop","path":"<canonical array path>","anchor":"<segment tag>","fields":[<element/const/derived/codemap rules>]}',
     'Use codemap for any element whose canonical target is a fixed enum (e.g. accept/decline).',
+    'Use loop for any repeating segment that maps to a canonical array (stops, freight, charges, references);',
+    'inside a loop, element addresses are RELATIVE to the loop window (occurrence restarts at 0 per window),',
+    'and add "cast":"number" to element rules whose canonical target is numeric (weights, counts, amounts).',
     'Map every populated element from the spec to its canonical field. Output a JSON array of rules only.',
   ].join('\n');
 }

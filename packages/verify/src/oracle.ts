@@ -16,9 +16,10 @@ import {
   formatAddress,
   readElement,
   type EdiInterchange,
+  type EdiSegment,
 } from '@latch/edi-core';
 import type { CanonicalRecord } from '@latch/canonical';
-import { toCanonical, fromCanonical, RAW_EDI_KEY, type MapArtifact } from '@latch/transform';
+import { toCanonical, fromCanonical, RAW_EDI_KEY, type MapArtifact, type ChildRule } from '@latch/transform';
 import { getPath, stableStringify } from '@latch/shared';
 
 const edi = createEdiCore();
@@ -92,10 +93,57 @@ export function forwardOracle(
   return { match: issues.length === 0, issues };
 }
 
+/** Independent re-windowing (NOT the engine's): each `anchor` occurrence opens a window
+ *  to the next same-tag anchor. Duplicated here on purpose so the oracle never trusts the
+ *  engine's loop logic to judge the engine's loop output. */
+function windows(segments: EdiSegment[], anchor: string): EdiSegment[][] {
+  const starts: number[] = [];
+  segments.forEach((s, i) => {
+    if (s.tag === anchor) starts.push(i);
+  });
+  return starts.map((start, k) =>
+    segments.slice(start, k + 1 < starts.length ? starts[k + 1] : segments.length),
+  );
+}
+
+/** Re-derive one flat rule's expected value directly from `doc` and compare to the engine's
+ *  placement at `target[path]`. Independent of the engine's path logic. */
+function diffChild(
+  rule: ChildRule,
+  doc: EdiInterchange,
+  target: Record<string, unknown>,
+  label: string,
+  issues: string[],
+): void {
+  if (rule.kind === 'element') {
+    const raw = readElement(doc, rule.source);
+    // Match the engine: trim only the populated-check + numeric parse; compare the
+    // uncast string against the engine's verbatim (untrimmed) stored value.
+    if (raw === undefined || raw.trim() === '') return; // not populated → not required at path
+    if (rule.cast === 'number') {
+      const n = Number(raw.trim());
+      if (!Number.isFinite(n)) return;
+      const got = getPath(target, rule.path);
+      if (got !== n) issues.push(`${label}${rule.path}: engine has ${JSON.stringify(got)} but source ${formatAddress(rule.source)} casts to ${JSON.stringify(n)}`);
+      return;
+    }
+    const got = getPath(target, rule.path);
+    if (got !== raw) issues.push(`${label}${rule.path}: engine has ${JSON.stringify(got)} but source ${formatAddress(rule.source)} is ${JSON.stringify(raw)}`);
+  } else if (rule.kind === 'codemap') {
+    const code = readElement(doc, rule.source)?.trim();
+    if (code === undefined || code === '') return;
+    const mapped = Object.prototype.hasOwnProperty.call(rule.table, code) ? rule.table[code] : undefined;
+    const expected = mapped ?? (rule.onMiss === 'passthrough' ? code : undefined);
+    if (expected === undefined) return;
+    const got = getPath(target, rule.path);
+    if (got !== expected) issues.push(`${label}${rule.path}: engine has ${JSON.stringify(got)} but codemap of ${formatAddress(rule.source)}="${code}" is ${JSON.stringify(expected)}`);
+  }
+}
+
 /**
- * Differential oracle: for each `element` rule, read its source address directly from the
- * first transaction-set body and confirm the engine placed that exact value at the path.
- * Independent of the engine's internal path/loop logic.
+ * Differential oracle: re-derive every `element`/`codemap` rule's expected value by reading
+ * the source address DIRECTLY (and, for loops, re-windowing the body independently) and
+ * confirm the engine placed exactly that value. Independent of the engine's path/loop logic.
  */
 export function differentialOracle(map: MapArtifact, input: string): { match: boolean; issues: string[] } {
   const parsed = edi.parse(input);
@@ -115,25 +163,23 @@ export function differentialOracle(map: MapArtifact, input: string): { match: bo
   const obj = record as unknown as Record<string, unknown>;
   const issues: string[] = [];
   for (const rule of map.rules) {
-    if (rule.kind === 'element') {
-      const expected = readElement(bodyDoc, rule.source);
-      if (expected === undefined || expected === '') continue; // not populated → not required at path
-      const got = getPath(obj, rule.path);
-      if (got !== expected) {
-        issues.push(`${rule.path}: engine has ${JSON.stringify(got)} but source ${formatAddress(rule.source)} is ${JSON.stringify(expected)}`);
+    if (rule.kind === 'element' || rule.kind === 'codemap') {
+      diffChild(rule, bodyDoc, obj, '', issues);
+    } else if (rule.kind === 'loop') {
+      const arr = getPath(obj, rule.path);
+      if (!Array.isArray(arr)) {
+        issues.push(`${rule.path}: engine did not produce an array for the loop`);
+        continue;
       }
-    } else if (rule.kind === 'codemap') {
-      // Independently re-apply the declared table to the source code and confirm the
-      // engine placed exactly that canonical value (catches mis-placement / wrong table).
-      const code = readElement(bodyDoc, rule.source);
-      if (code === undefined || code === '') continue;
-      // Own-property guard: `code` is EDI-controlled and must not resolve to a prototype member.
-      const mapped = Object.prototype.hasOwnProperty.call(rule.table, code) ? rule.table[code] : undefined;
-      const expected = mapped ?? (rule.onMiss === 'passthrough' ? code : undefined);
-      if (expected === undefined) continue; // unset-on-miss: engine also leaves it unset
-      const got = getPath(obj, rule.path);
-      if (got !== expected) {
-        issues.push(`${rule.path}: engine has ${JSON.stringify(got)} but codemap of ${formatAddress(rule.source)}="${code}" is ${JSON.stringify(expected)}`);
+      const wins = windows(body, rule.anchor);
+      if (wins.length !== arr.length) {
+        issues.push(`${rule.path}: engine produced ${arr.length} item(s) but body has ${wins.length} ${rule.anchor} window(s)`);
+      }
+      const n = Math.min(wins.length, arr.length);
+      for (let k = 0; k < n; k++) {
+        const windowDoc: EdiInterchange = { segments: wins[k]!, delimiters: bodyDoc.delimiters };
+        const item = (arr[k] ?? {}) as Record<string, unknown>;
+        for (const child of rule.fields) diffChild(child, windowDoc, item, `${rule.path}[${k}].`, issues);
       }
     }
   }

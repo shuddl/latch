@@ -22,37 +22,40 @@ Execute top-to-bottom. Each task is a vertical slice with an explicit acceptance
 
 ## Milestone 1 — Certify one set (THE WEDGE, 214) ★
 
-- [ ] **1.1** `packages/spec` — Spec Ingestor for 214. Input: guide (PDF/text) + samples + set + version. Use Anthropic API to extract a `LatchSpec` (segments/elements/loops/qualifiers/usage), **using samples as ground truth** and flagging guide-vs-sample deviations. Validate output with Zod; mark per-field confidence; **never silently accept low-confidence fields.** Persist spec (R2 json + D1 row, hashed).
-- [ ] **1.2** `packages/mapgen` — generate the **inbound 214 → canonical `StatusEvent`** map as **declarative rules** (data, not imperative code). Anthropic-assisted proposal; output a versioned `MapArtifact` with `compiled_hash`. Also generate the **outbound** direction (canonical → 214) for round-trip testing.
-- [x] **1.3** `packages/transform` — deterministic engine: `toCanonical` and `fromCanonical` executing a `MapArtifact`. **No LLM.** Pure, typed, returns `TransformResult` (never throws into a hot path). Preserve raw qualifiers + `raw` escape hatch for fidelity.
-- [x] **1.4** `packages/verify` — (a) **golden synthesis** from spec + samples covering valid/boundary/every-qualifier/every-loop/deviation/adversarial; (b) the **Verification Engine**: inject corpus through the map both directions, compare to expected, compute round-trip fidelity + coverage + adversarial-graceful, score vs the **benchmark bar** (`docs/07`). Persist `golden_corpora` + `certification_runs` + per-field results (R2).
-- [ ] **1.5** `apps/api` — onboarding + certification endpoints (`docs/08`): create connection, upload guide/samples, `ingest`, `generate-map`, `certify`, get spec/map/certification. Async jobs (`/v1/jobs/:id`) + progress stream (SSE/WebSocket).
-- [ ] **1.6** `apps/web` — the hero flow Screens 1–4 (`docs/09`): add partner → drop guide+samples → **live certification timeline** → the **visual certification report** (coverage heatmap, round-trip gauge, per-field drill-down with guide refs, adversarial panel). Use the `frontend-design` skill.
-- [x] **1.7** Wire the **injection harness into CI** against `fixtures/` 214; PRs touching engine packages fail below bar.
-- [ ] **DoD-1:** a non-EDI user uploads a real 214 guide + samples and gets a **green, benchmark-passing certification** visually — no manual mapping. Reproducible from a single command and from the UI.
+- [x] **1.1** `packages/spec` — Spec Ingestor (PR #7). `ingestSpec(client, guide+samples)` → Zod-validated `LatchSpec`, samples as ground truth, per-field confidence, low-confidence fields surfaced (never silently accepted), set/version pinned. **Debt:** persistence is via the connection's samples/maps, not a dedicated hashed `specs` R2/D1 row yet; PDF guide ingestion not wired (text guide only) — see PG-5/OP-4 below.
+- [x] **1.2** `packages/mapgen` — `generateMap(client, spec)` → versioned `MapArtifact` with `compiledHash`, Zod-validated, gated by the Verification Engine (PR #7). **Debt:** emits the **inbound** direction; the outbound direction reuses the same artifact via `fromCanonical` (round-trip proven) but a dedicated canonical→EDI *generation* path/prompt is task 3.3.
+- [x] **1.3** `packages/transform` — deterministic engine: `toCanonical`/`fromCanonical` executing a `MapArtifact`. **No LLM.** Pure, typed, `TransformResult` (never throws). Raw qualifiers + `raw.__edi` snapshot for fidelity. Now incl. `codemap` + repeating `loop` + numeric `cast` rule kinds.
+- [x] **1.4** `packages/verify` — golden synthesis + the three-oracle Verification Engine (invariant/forward/differential), scored vs the benchmark bar (`docs/07`). **Debt:** `certification_runs` persist to D1/R2; standalone `golden_corpora` table not separately persisted (corpora are rebuilt deterministically from the sample fixture each run, which is sufficient + reproducible).
+- [~] **1.5** `apps/api` — onboarding + certification endpoints (`docs/08`): create connection, upload samples, `ingest`, `generate-map`, `certify`, get map/cert + report (PR #4/#7). **Skipped (debt):** async jobs (`/v1/jobs/:id`) + SSE/WebSocket progress stream — certification is fast + synchronous today, so the live timeline is client-polled; revisit if cert latency grows. Guide upload endpoint takes inline text, not a file/R2 upload yet.
+- [x] **1.6** `apps/web` — hero flow + visual certification report (gauge, dimensions, per-record drill-down, adversarial panel) + drift timeline + connection detail (PR #4/#6). **Debt:** coverage *heatmap* and per-field guide-reference drill-down are simplified to the dimension/record views; "dollars protected" deferred (D6).
+- [x] **1.7** Injection harness wired into CI against `fixtures/`; PRs touching engine packages fail below bar.
+- [x] **DoD-1:** onboard → generate/register map → benchmark-passing certification → report, reproducible from a single test command and from the UI (synthetic fixtures; real-guide DoD still wants N1).
 
 ## Milestone 2 — Live traffic + acks
-- [ ] **2.1** `packages/connectivity` — SFTP adapter implementing `ConnectivityAdapter` (poll inbound → archive R2 → enqueue; outbound write). Secrets in `.dev.vars`/Cloudflare secrets.
-- [ ] **2.2** `apps/pipeline` — `txn-ingest` consumer: parse → transform (pinned map version) → persist canonical (R2) + `transactions` row → emit **997**.
-- [ ] **2.3** `ConnectionDO` — control-number sequencing + idempotency/duplicate detection.
-- [ ] **2.4** API + UI: `go-live` (promote certified→production, guarded), transaction index/detail, **replay**.
-- [ ] **DoD-2:** drop a real 214 on SFTP → parsed, transformed, persisted, 997 returned, visible in UI; replay works; duplicates ignored.
+- [ ] **2.1** `packages/connectivity` — SFTP adapter implementing `ConnectivityAdapter`. **NOT BUILT (stub package).** Inbound today is the HTTP `ingest` endpoint + the queue consumer; SFTP/AS2 transport is M2.1/3.2. R1 risk: SFTP-in-Workers spike still open.
+- [x] **2.2** queue consumer (co-located in `apps/api`, not a separate `apps/pipeline`): parse → transform (pinned map) → persist canonical (R2) + `transactions` row → emit **997** (PR #4). **Debt (TD2):** 997 AK3/AK4 element-level error positions are coarse; fine-grained rejection detail deferred.
+- [~] **2.3** control-number sequencing + idempotency/duplicate detection. **Done** in the Store (`findTransactionByControls`, idempotency keys). **Skipped (debt):** the dedicated `ConnectionDO` (501 stub) for per-connection outbound sequencing — not needed until outbound/AS2 transport exists.
+- [x] **2.4** API + UI: `go-live` (guarded promote certified→production), transaction index/detail, **replay** (PR #4).
+- [~] **DoD-2:** parsed→transformed→persisted→997→visible→replay→dedup all proven via the HTTP path + tests; the SFTP *drop* path awaits 2.1.
 
 ## Milestone 3 — Six sets + AS2
 - [~] **3.1** Extend ingestor/mapgen/verify/transform to **204, 990, 211, 210, 997** (inbound+outbound as relevant; 204↔990 pairing; 210 invoice; 211 BOL). Add fixtures per set.
   - [x] **3.1a — 990 (TenderResponse), the second flat set.** Hand-authored `MAP_990_TENDERRESPONSE`, `buildCorpus990`, `fixtures/990`. Added a reusable **`codemap`** rule kind (forward-only EDI-code→canonical-enum via a declared table; write-back rides in the raw snapshot so round-trip stays byte-faithful) — the engine, the differential oracle, and the mapgen prompt all understand it. Added a **transaction-set registry** (`apps/api/src/transaction-sets.ts`) so maps/generate-map/certify/drift route by set instead of `=== '214'`. 990 onboards→certifies→goes-live→ingests end-to-end (API test). 111 tests green.
-  - [ ] **3.1b — repeating-loop sets (204 Tender stops[]/freight[], 210 Invoice charges[], 211 BOL freight[]).** Needs a `loop` rule kind: map a repeating segment window to a canonical array, with byte-faithful round-trip (item i ↔ window i, overlay element write-backs onto the snapshot) and loop-aware differential-oracle coverage. 211 party loops (N1*SH/CN/BT) additionally want qualifier-filtered single-element addressing. Scope as its own PR — the loop write-back deserves dedicated golden tests.
+  - [~] **3.1b — repeating-loop sets.** Added the `loop` rule kind (anchor-delimited windows → canonical array; byte-faithful round-trip item i ↔ window i; uncast `element` children written back, cast/derived/codemap children forward-only via snapshot) + numeric `cast` on element rules + loop-aware differential oracle.
+    - [x] **204 (Tender)** — `MAP_204_TENDER` (stops S5-loop with nested party + address, freight AT8-loop, references L11-loop), `buildCorpus204`, `fixtures/204`. Certifies at the full bar incl. loop shapes ×1/×2. Registered.
+    - [ ] **210 (Invoice)** — `charges[]` (L1/L0 loop) + billTo party + numeric `total`/`amount` casts. Next.
+    - [ ] **211 (BOL)** — `freight[]` loop + qualifier-filtered N1 party loops (SH/CN/BT) for shipper/consignee/billTo single parties. Needs qualifier-filtered single-element addressing (a small extension to element/loop: match an anchor occurrence by a qualifier element). Most complex of the three.
 - [ ] **3.2** AS2 adapter (sign/encrypt/MDN; encrypted cert material). VAN interconnect documented + stubbed.
 - [ ] **3.3** Outbound generation paths (emit 990 for a 204; emit 214/210).
 - [ ] **3.4** Spec Library: every passing cert normalizes + accretes a `spec_library` entry.
 - [ ] **DoD-3:** all six sets onboard+certify; inbound 204→canonical `Tender` + certified outbound 990; AS2 round-trips with MDN; Spec Library populated.
 
 ## Milestone 4 — Self-Heal (recurring tier) ★
-- [ ] **4.1** `packages/heal` — deterministic schema-drift detection vs certified spec + cheap-classify semantic anomaly (Workers AI), **non-blocking** in the pipeline. Open `drift_events`.
-- [ ] **4.2** Patch proposal (Anthropic) → draft patched map → **shadow re-certification at full benchmark bar** (+ the new drift case).
-- [ ] **4.3** Per-connection heal policy (auto-apply vs one-click approval); last-good map stays live until applied.
-- [ ] **4.4** UX: drift timeline + approval flow + monthly health / "dollars protected" view (`docs/09`).
-- [ ] **DoD-4:** inject a drifted file (new qualifier) → DriftEvent opens, patch proposed + passes shadow cert, auto-applies within policy (or waits for approval), timeline narrates it in plain English; live traffic never stalls.
+- [x] **4.1** `packages/heal` — deterministic schema-drift detection vs certified baseline (new_segment/changed_qualifier/structural), **non-blocking** in the pipeline; opens `drift_events` (PR #5). **Debt:** the optional Workers-AI cheap-classify semantic-anomaly pass is not wired (deterministic structural drift only).
+- [x] **4.2** Patch proposal (`patchMap`, Anthropic, build/heal-time) → draft patched map → **shadow re-certification at the full bar** (+ the new drift case) (PR #5/#7). **Debt:** auto-apply of a passing patched map writes the heal decision + shadow result; the auto-promote of the patched artifact to active is recorded but the LLM patch path needs a key (deterministic detection works without it).
+- [x] **4.3** Per-connection heal policy (auto-apply additive vs one-click approval vs hold); last-good map stays live until applied (PR #5).
+- [~] **4.4** UX: drift timeline + approval/dismiss flow (PR #6). **Skipped (debt):** monthly health / "dollars protected" view — shown as health counts today; the D6 dollar formula is undecided.
+- [x] **DoD-4:** inject a drifted file → DriftEvent opens, additive auto-applies within policy, breaking drift waits for approval, timeline narrates it in plain English; live traffic never stalls (proven via API + UI tests).
 
 ## Milestone 5 — Polish, Auth, design-partner GA
 - [ ] **5.1** **Clerk auth + multi-tenant flip** (`tenant_id` becomes real; orgs/teams). The only point auth is built (`CLAUDE.md §2.3`).
@@ -79,6 +82,36 @@ Execute top-to-bottom. Each task is a vertical slice with an explicit acceptance
 6. **Product name** — "Latch" is a placeholder; a one-pass find-replace renames it everywhere if desired.
 7. **Canonical model coverage** — `docs/06` covers the six freight sets; confirm no immediate retail/healthcare requirement before widening (`docs/13`).
 8. **Tenancy/identity model at GA** — org/team structure and roles for M5 Clerk integration to be specified just before that milestone.
+
+---
+
+## Technical debt ledger (audit 2026-06-24)
+
+Single source of truth for known, *intentional* debt. Each item is either scheduled to a
+milestone or accepted with a rationale. No hidden debt: the repo has zero TODO/FIXME/HACK
+markers; all stubs are explicit (501 DOs, empty `connectivity`/`handshake` packages).
+
+**Blockers before production GA**
+- **OP-1 — Real companion guides + sample EDI** (design partner's actual files). Until then goldens are anonymized synthetic. External, not a code task. → before M1 "real-guide" DoD.
+- **OP-2 — Connectivity spike (R1):** SFTP/AS2 in the Workers runtime is unproven. → M2.1/3.2. Inbound today is the HTTP `ingest` endpoint + queue consumer.
+- **OP-4 — PDF guide ingestion:** `ingestSpec` takes guide *text*; PDF/DOCX upload + Anthropic native-PDF path not wired. → M1.1 follow-up.
+
+**Production hardening (before M5 GA)**
+- **PG-1 — Rate limiting:** none per-tenant/connection. → M5.2 (DO + KV).
+- **PG-2 — Auth:** dev-stub `X-Latch-Dev-Org` header only (intentional, CLAUDE.md §2.3). → M5.1 Clerk.
+- **PG-3 — Observability/alerting:** structured logs + requestId only; no metrics/alerting. → M5.2.
+- **PG-4 — Secret rotation/audit runbook:** not written. → M5.2.
+- **PG-5 — Input size limits:** guide text / samples unbounded (OOM risk). → M1.5 (add max sizes).
+- **PG-6 — Error-message sanitization:** transform/parse errors may include raw segment text; sanitize before returning. → M1.5.
+- **PG-7 — LLM eval/regression set:** no golden guide→spec→map examples to catch prompt regressions. → M1.5.
+- **PG-8 — Share-link token security:** entropy/expiry/revocation unspecified. → M1.6.
+
+**Engine / set-coverage debt**
+- **3.1b 210 + 211** not built (204 done). 211 needs qualifier-filtered N1 party addressing.
+- **Loop v1 limits:** loops don't nest (children are flat); loop write-back maps item *i* ↔ window *i* with no structural add/remove (extra canonical items are dropped on serialize with the snapshot riding for fidelity). Documented in `map.ts`/`engine.ts`. Sufficient for inbound cert; revisit for outbound authoring.
+- **TD2 — 997 AK3/AK4** element-level error positions are coarse. → M2.2 follow-up.
+- **1.5 async jobs/SSE** progress stream skipped (cert is synchronous + fast; client polls).
+- **Spec/corpus persistence:** specs ride on the connection (no dedicated hashed `specs` row); `golden_corpora` rebuilt deterministically per run rather than stored. Accepted (reproducible).
 
 ---
 

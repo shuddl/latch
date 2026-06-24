@@ -7,3 +7,4 @@ export * from './oracle';
 export * from './engine';
 export { buildCorpus214 } from './corpus/214';
 export { buildCorpus990 } from './corpus/990';
+export { buildCorpus204 } from './corpus/204';
