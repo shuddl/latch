@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { createEdiCore } from '@latch/edi-core';
-import { tenderSchema, type TenderResponse } from '@latch/canonical';
+import { createEdiCore, readElement } from '@latch/edi-core';
+import { tenderSchema, type CanonicalRecord, type TenderResponse } from '@latch/canonical';
 import {
   buildOutbound,
   respondToTender,
   toCanonical,
+  withCompiledHash,
   MAP_990_TENDERRESPONSE,
   MAP_204_TENDER,
+  type MapArtifact,
   type OutboundEnvelope,
 } from './index';
 
@@ -78,10 +80,47 @@ describe('buildOutbound — canonical → EDI (990 TenderResponse)', () => {
   });
 
   it('refuses outbound generation for a map with repeating loops/groups (v1 limit)', () => {
-    const out = buildOutbound(MAP_204_TENDER, response, ENV);
+    const tender = tenderSchema.parse({
+      kind: 'Tender', canonicalVersion: '1', shipmentId: 'X', purpose: 'original', stops: [], freight: [], references: [],
+    });
+    const out = buildOutbound(MAP_204_TENDER, tender, ENV);
     expect(out.ok).toBe(false);
     if (out.ok) return;
     expect(out.errors[0]?.code).toBe('UNSUPPORTED');
+  });
+
+  it('rejects a record whose kind does not match the map', () => {
+    const wrong = { kind: 'Tender', canonicalVersion: '1', shipmentId: 'X', purpose: 'original', stops: [], freight: [], references: [] } as unknown as CanonicalRecord;
+    const out = buildOutbound(MAP_990_TENDERRESPONSE, wrong, ENV);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.errors[0]?.code).toBe('VALIDATION');
+  });
+});
+
+describe('buildOutbound — occurrence indexing is preserved (no segment-shift on round-trip)', () => {
+  // A synthetic flat map referencing REF#0 and REF#1; the canonical populates only the
+  // occurrence-1 field. The builder must still emit REF#0 (empty) so re-parsing keeps
+  // occurrence 1 at occurrence 1.
+  const refMap: MapArtifact = withCompiledHash({
+    mapVersion: 'test-ref', direction: 'outbound', transactionSet: '999', x12Version: '004010',
+    canonicalVersion: '1', recordKind: 'StatusEvent',
+    rules: [
+      { kind: 'element', path: 'a', source: { tag: 'REF', occurrence: 0, element: 2 } },
+      { kind: 'element', path: 'b', source: { tag: 'REF', occurrence: 1, element: 2 } },
+    ],
+  });
+
+  it('emits a contiguous occurrence-0 placeholder so occurrence-1 does not shift', () => {
+    const rec = { kind: 'StatusEvent', a: '', b: 'SECOND' } as unknown as CanonicalRecord;
+    const out = buildOutbound(refMap, rec, ENV);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    // Two REF segments emitted; occurrence 1 still carries 'SECOND' (no shift to occ 0).
+    const refs = out.value.segments.filter((s) => s.tag === 'REF');
+    expect(refs.length).toBe(2);
+    expect(readElement(out.value, { tag: 'REF', occurrence: 1, element: 2 })).toBe('SECOND');
+    expect(readElement(out.value, { tag: 'REF', occurrence: 0, element: 2 })).toBeUndefined();
   });
 });
 

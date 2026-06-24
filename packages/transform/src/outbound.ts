@@ -58,6 +58,12 @@ export function buildOutbound(
   record: CanonicalRecord,
   envelope: OutboundEnvelope,
 ): Result<EdiInterchange> {
+  if (record.kind !== map.recordKind) {
+    return err({
+      code: 'VALIDATION',
+      message: `Record kind "${record.kind}" does not match the map's recordKind "${map.recordKind}"`,
+    });
+  }
   if (map.rules.some((r) => r.kind === 'loop' || r.kind === 'group')) {
     return err({
       code: 'UNSUPPORTED',
@@ -67,20 +73,25 @@ export function buildOutbound(
 
   const obj = record as unknown as Record<string, unknown>;
   const warnings: Issue[] = [];
+  const invertedCache = new Map<Record<string, string>, Record<string, string>>();
 
-  // Materialize segments by (tag, occurrence), preserving first-seen rule order. A segment
-  // is only created once it has a populated element, so optional segments don't emit empties.
-  const order: string[] = [];
-  const byKey = new Map<string, EdiSegment>();
-  const ensure = (tag: string, occurrence: number): EdiSegment => {
-    const key = `${tag}#${occurrence}`;
-    let seg = byKey.get(key);
-    if (!seg) {
-      seg = { tag, elements: [] };
-      byKey.set(key, seg);
-      order.push(key);
+  // Pass 1: collect every populated value, keyed tag → occurrence → element position. Only
+  // populated values are recorded; an unreferenced/empty (tag, occurrence) is never created.
+  const tagOrder: string[] = [];
+  const cells = new Map<string, Map<number, Map<number, string>>>();
+  const put = (tag: string, occurrence: number, position: number, value: string): void => {
+    let occMap = cells.get(tag);
+    if (!occMap) {
+      occMap = new Map();
+      cells.set(tag, occMap);
+      tagOrder.push(tag);
     }
-    return seg;
+    let posMap = occMap.get(occurrence);
+    if (!posMap) {
+      posMap = new Map();
+      occMap.set(occurrence, posMap);
+    }
+    posMap.set(position, value);
   };
 
   for (const rule of map.rules) {
@@ -89,19 +100,25 @@ export function buildOutbound(
         continue; // canonical-only; never serialized
       case 'element': {
         const value = getPath(obj, rule.path);
-        if (value === undefined || value === null || value === '') continue;
-        setElement(ensure(rule.source.tag, rule.source.occurrence), rule.source.element, String(value));
+        // Skip empties and non-primitives — String({}) would emit a malformed "[object Object]".
+        if (value === undefined || value === null || value === '' || typeof value === 'object') continue;
+        put(rule.source.tag, rule.source.occurrence, rule.source.element, String(value));
         continue;
       }
       case 'codemap': {
         const value = getPath(obj, rule.path);
-        if (value === undefined || value === null) continue;
-        const code = invertTable(rule.table)[String(value)];
+        if (value === undefined || value === null || typeof value === 'object') continue;
+        let inverted = invertedCache.get(rule.table);
+        if (!inverted) {
+          inverted = invertTable(rule.table);
+          invertedCache.set(rule.table, inverted);
+        }
+        const code = inverted[String(value)];
         if (code === undefined) {
           warnings.push({ code: 'TRANSFORM', message: `No outbound code for ${rule.path}="${String(value)}"`, path: rule.path });
           continue;
         }
-        setElement(ensure(rule.source.tag, rule.source.occurrence), rule.source.element, code);
+        put(rule.source.tag, rule.source.occurrence, rule.source.element, code);
         continue;
       }
       case 'derived':
@@ -116,7 +133,22 @@ export function buildOutbound(
     }
   }
 
-  const segments = order.map((k) => byKey.get(k)!);
+  // Pass 2: emit each tag's occurrences 0..max CONTIGUOUSLY, filling gaps with empty
+  // segments. This preserves occurrence indexing on re-parse — if occurrence 1 were emitted
+  // without occurrence 0, the inbound parser would read it as occurrence 0 and shift the
+  // data, breaking the round-trip invariant.
+  const segments: EdiSegment[] = [];
+  for (const tag of tagOrder) {
+    const occMap = cells.get(tag)!;
+    const maxOcc = Math.max(...occMap.keys());
+    for (let occ = 0; occ <= maxOcc; occ++) {
+      const seg: EdiSegment = { tag, elements: [] };
+      const posMap = occMap.get(occ);
+      if (posMap) for (const [pos, val] of posMap) setElement(seg, pos, val);
+      segments.push(seg);
+    }
+  }
+
   const interchange = buildInterchange({
     delimiters: envelope.delimiters ?? DEFAULT_DELIMITERS,
     interchange: envelope.interchange,
