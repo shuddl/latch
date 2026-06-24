@@ -39,12 +39,12 @@ Execute top-to-bottom. Each task is a vertical slice with an explicit acceptance
 - [~] **DoD-2:** parsed→transformed→persisted→997→visible→replay→dedup all proven via the HTTP path + tests; the SFTP *drop* path awaits 2.1.
 
 ## Milestone 3 — Six sets + AS2
-- [~] **3.1** Extend ingestor/mapgen/verify/transform to **204, 990, 211, 210, 997** (inbound+outbound as relevant; 204↔990 pairing; 210 invoice; 211 BOL). Add fixtures per set.
+- [x] **3.1** Extend ingestor/mapgen/verify/transform to **204, 990, 211, 210, 997**. All five business sets now certify at the full bar (214 from M1 makes six); 997 is generated on-the-fly as an ack. Engine rule vocabulary: element/const/derived/codemap/loop/group + numeric cast. **Debt:** all goldens are synthetic standard-conformant fixtures — the design partner's real guides/samples (OP-1) turn them into real goldens and onboard the actual estate; that's a GTM input, not a build dependency (mapgen generates maps from samples at runtime — hand-authored maps are only the no-key test scaffold).
   - [x] **3.1a — 990 (TenderResponse), the second flat set.** Hand-authored `MAP_990_TENDERRESPONSE`, `buildCorpus990`, `fixtures/990`. Added a reusable **`codemap`** rule kind (forward-only EDI-code→canonical-enum via a declared table; write-back rides in the raw snapshot so round-trip stays byte-faithful) — the engine, the differential oracle, and the mapgen prompt all understand it. Added a **transaction-set registry** (`apps/api/src/transaction-sets.ts`) so maps/generate-map/certify/drift route by set instead of `=== '214'`. 990 onboards→certifies→goes-live→ingests end-to-end (API test). 111 tests green.
   - [~] **3.1b — repeating-loop sets.** Added the `loop` rule kind (anchor-delimited windows → canonical array; byte-faithful round-trip item i ↔ window i; uncast `element` children written back, cast/derived/codemap children forward-only via snapshot) + numeric `cast` on element rules + loop-aware differential oracle.
     - [x] **204 (Tender)** — `MAP_204_TENDER` (stops S5-loop with nested party + address, freight AT8-loop, references L11-loop), `buildCorpus204`, `fixtures/204`. Certifies at the full bar incl. loop shapes ×1/×2. Registered.
-    - [ ] **210 (Invoice)** — `charges[]` (L1/L0 loop) + billTo party + numeric `total`/`amount` casts. Next.
-    - [ ] **211 (BOL)** — `freight[]` loop + qualifier-filtered N1 party loops (SH/CN/BT) for shipper/consignee/billTo single parties. Needs qualifier-filtered single-element addressing (a small extension to element/loop: match an anchor occurrence by a qualifier element). Most complex of the three.
+    - [x] **210 (Invoice)** — `MAP_210_INVOICE`: billTo via new **`group`** rule (qualifier-selected single object, N1*BT), `charges[]` L1-loop, numeric `total`/`amount` casts. Certifies at the full bar (PR #10).
+    - [x] **211 (BOL)** — `MAP_211_BOL`: shipper/consignee/billTo via `group` (N1 SH/CN/BT), `freight[]` AT1-loop (AT2/AT4 lading), `references[]` L11-loop (value-first), BOL number from BOL-03. Structure cross-verified against the X12 standard via a research workflow (beginning segment is BOL not B2; detail is the AT1 loop not AT8) — built from synthetic standard-conformant fixtures, **no partner guide required**. Certifies at the full bar incl. SH/CN/BT qualifier coverage, freight loop ×1/×2, and the absent-optional-group (no billTo) oracle path. Registered. That same research pass **verified the 204 and 210 maps as standard-accurate** (no corrections).
 - [ ] **3.2** AS2 adapter (sign/encrypt/MDN; encrypted cert material). VAN interconnect documented + stubbed.
 - [ ] **3.3** Outbound generation paths (emit 990 for a 204; emit 214/210).
 - [ ] **3.4** Spec Library: every passing cert normalizes + accretes a `spec_library` entry.
@@ -107,7 +107,7 @@ markers; all stubs are explicit (501 DOs, empty `connectivity`/`handshake` packa
 - **PG-8 — Share-link token security:** entropy/expiry/revocation unspecified. → M1.6.
 
 **Engine / set-coverage debt**
-- **3.1b 210 + 211** not built (204 done). 211 needs qualifier-filtered N1 party addressing.
+- **All six sets (214/990/204/210/211 + 997 acks) now certify.** 211 structure was cross-verified against the X12 standard via a research workflow (which also confirmed 204/210 accurate). Remaining set work is outbound generation (3.3) and the Spec Library (3.4).
 - **Loop v1 limits:** loops don't nest (children are flat); loop write-back maps item *i* ↔ window *i* with no structural add/remove (extra canonical items are dropped on serialize with the snapshot riding for fidelity). Documented in `map.ts`/`engine.ts`. Sufficient for inbound cert; revisit for outbound authoring.
 - **TD2 — 997 AK3/AK4** element-level error positions are coarse. → M2.2 follow-up.
 - **1.5 async jobs/SSE** progress stream skipped (cert is synchronous + fast; client polls).
