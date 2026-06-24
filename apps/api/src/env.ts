@@ -10,16 +10,20 @@ export interface Env {
   CONNECTION_DO: DurableObjectNamespace;
   HANDSHAKE_DO: DurableObjectNamespace;
   LATCH_DEV_DEFAULT_ORG?: string;
+  // Build/heal-time only (never used in the per-transaction runtime).
+  ANTHROPIC_API_KEY?: string;
+  ANTHROPIC_MODEL?: string;
 }
 
 import type { Store } from './store/store';
-import type { Logger } from '@latch/shared';
+import type { Logger, LlmClient } from '@latch/shared';
 
 export type Variables = {
   tenantId: string;
   requestId: string;
   store: Store;
   log: Logger;
+  llm: LlmClient | null;
 };
 
 export type AppEnv = { Bindings: Env; Variables: Variables };

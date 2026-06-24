@@ -2,9 +2,18 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { MAP_214_STATUSEVENT } from '@latch/transform';
+import type { LlmClient } from '@latch/shared';
 import { createApp } from './app';
 import { InMemoryStore } from './store/memory';
 import type { Env } from './env';
+
+// Fake build-time AI: returns rules for the map-generator prompt, a spec otherwise.
+const fakeLlm = (): LlmClient => ({
+  extractJson: async ({ system }) =>
+    system.includes('transform rules')
+      ? MAP_214_STATUSEVENT.rules
+      : { transactionSet: '214', x12Version: '004010', segments: [], deviations: [], confidence: 1 },
+});
 
 const FIXTURE_214 = readFileSync(
   fileURLToPath(new URL('../../../fixtures/214/sample-214-001.edi', import.meta.url)),
@@ -17,9 +26,9 @@ const ENV = {} as Env; // InMemoryStore ignores bindings
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = any;
 
-function harness() {
+function harness(getLlm: (env: Env) => LlmClient | null = () => null) {
   const store = new InMemoryStore();
-  const app = createApp(() => store);
+  const app = createApp(() => store, getLlm);
   const call = (
     path: string,
     init: { method?: string; body?: unknown; org?: string; idemKey?: string } = {},
@@ -164,6 +173,40 @@ describe('control-plane API', () => {
     // Dismissing an already-resolved (auto-applied) event is likewise a conflict.
     const dismissResolved = await h.call(`/v1/drift/${r1.drift.id}/dismiss`, { method: 'POST', body: {} });
     expect(dismissResolved.status).toBe(409);
+  });
+
+  it('generates a map from samples via build-time AI, which then certifies', async () => {
+    const hg = harness(() => fakeLlm());
+    const partner = await hg.json(await hg.call('/v1/partners', { method: 'POST', body: { name: 'R&L' } }));
+    const conn = await hg.json(
+      await hg.call('/v1/connections', {
+        method: 'POST',
+        body: { partnerId: partner.id, direction: 'inbound', transactionSet: '214', connectivity: { type: 'sftp' } },
+      }),
+    );
+    await hg.call(`/v1/connections/${conn.id}/samples`, { method: 'POST', body: { samples: [FIXTURE_214] } });
+
+    const gen = await hg.call(`/v1/connections/${conn.id}/generate-map`, { method: 'POST', body: {} });
+    expect(gen.status).toBe(201);
+    const map = await hg.json(gen);
+    expect(map.compiledHash).toBeTruthy();
+
+    // The generated map must pass the Proof — the engine, not the model, is the gate.
+    const cert = await hg.json(await hg.call(`/v1/maps/${map.id}/certify`, { method: 'POST', body: {} }));
+    expect(cert.passed).toBe(true);
+  });
+
+  it('generate-map is a clean 422 without the AI key', async () => {
+    const partner = await h.json(await h.call('/v1/partners', { method: 'POST', body: { name: 'R&L' } }));
+    const conn = await h.json(
+      await h.call('/v1/connections', {
+        method: 'POST',
+        body: { partnerId: partner.id, direction: 'inbound', transactionSet: '214', connectivity: { type: 'sftp' } },
+      }),
+    );
+    await h.call(`/v1/connections/${conn.id}/samples`, { method: 'POST', body: { samples: [FIXTURE_214] } });
+    const res = await h.call(`/v1/connections/${conn.id}/generate-map`, { method: 'POST', body: {} });
+    expect(res.status).toBe(422);
   });
 
   it('rejects ingest on a connection that is not live (409)', async () => {

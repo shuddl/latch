@@ -5,9 +5,21 @@
 import { createApp } from './app';
 import { D1R2Store } from './store/d1r2';
 import { ingestInbound } from './ingest';
+import { createAnthropicClient } from '@latch/shared';
 import type { Env } from './env';
 
-const app = createApp((env) => new D1R2Store(env.LATCH_DB, env.LATCH_R2, env.LATCH_KV));
+const app = createApp(
+  (env) => new D1R2Store(env.LATCH_DB, env.LATCH_R2, env.LATCH_KV),
+  // Build/heal-time AI is available only when the key is configured (a Cloudflare
+  // secret). Without it, callers register explicit maps; the runtime is never affected.
+  (env) =>
+    env.ANTHROPIC_API_KEY
+      ? createAnthropicClient({
+          apiKey: env.ANTHROPIC_API_KEY,
+          ...(env.ANTHROPIC_MODEL ? { model: env.ANTHROPIC_MODEL } : {}),
+        })
+      : null,
+);
 
 interface InboundMessage {
   tenantId: string;
