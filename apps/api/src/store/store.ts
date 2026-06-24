@@ -5,6 +5,7 @@
 
 import type { MapArtifact } from '@latch/transform';
 import type { CertificationResult } from '@latch/verify';
+import type { CanonicalRecord } from '@latch/canonical';
 import type {
   Certification,
   Connection,
@@ -13,6 +14,8 @@ import type {
   Direction,
   MapRecord,
   Partner,
+  Transaction,
+  TransactionStatus,
 } from '../domain';
 
 export type { CreatePartnerData, CreateConnectionData };
@@ -30,6 +33,26 @@ export interface CreateCertificationData {
   mapId: string;
   connectionId: string;
   result: CertificationResult;
+}
+
+export interface ControlNumbers {
+  isa?: string;
+  gs?: string;
+  st?: string;
+}
+
+export interface CreateTransactionData {
+  connectionId: string;
+  mapId?: string;
+  direction: Direction;
+  transactionSet: string;
+  controls: ControlNumbers;
+  status: TransactionStatus;
+  errorDetail?: string;
+  ackStatus?: string;
+  rawIn: string;
+  canonical?: CanonicalRecord[];
+  rawOut?: string;
 }
 
 export interface IdempotentResponse {
@@ -72,6 +95,18 @@ export interface Store {
   createCertification(tenantId: string, data: CreateCertificationData): Promise<Certification>;
   getCertification(tenantId: string, id: string): Promise<Certification | null>;
   getCertificationResult(tenantId: string, id: string): Promise<CertificationResult | null>;
+
+  // Transactions (live traffic; bodies as blobs)
+  createTransaction(tenantId: string, data: CreateTransactionData): Promise<Transaction>;
+  getTransaction(tenantId: string, id: string): Promise<Transaction | null>;
+  listTransactions(tenantId: string, connectionId: string, limit?: number): Promise<Transaction[]>;
+  findTransactionByControls(
+    tenantId: string,
+    connectionId: string,
+    controls: ControlNumbers,
+  ): Promise<Transaction | null>;
+  getTransactionRawIn(tenantId: string, id: string): Promise<string | null>;
+  getTransactionCanonical(tenantId: string, id: string): Promise<CanonicalRecord[] | null>;
 
   // Idempotency (mutating requests with an Idempotency-Key)
   getIdempotent(tenantId: string, key: string): Promise<IdempotentResponse | null>;

@@ -115,6 +115,53 @@ export function runStoreContract(makeStore: () => Promise<Store> | Store) {
     expect(full?.corpusHash).toBe('corpus_test');
   });
 
+  it('transactions: create, list, dedup by control numbers, fetch blobs', async () => {
+    const { connection, map } = await seedMap(store, 'default');
+    const canonical = [
+      {
+        kind: 'StatusEvent' as const,
+        canonicalVersion: '1' as const,
+        shipmentId: '0510938',
+        statusCode: 'X1',
+        occurredAt: '2026-06-18T13:00:00',
+      },
+    ];
+    const txn = await store.createTransaction('default', {
+      connectionId: connection.id,
+      mapId: map.id,
+      direction: 'inbound',
+      transactionSet: '214',
+      controls: { isa: '000000001', gs: '1', st: '0001' },
+      status: 'transformed',
+      ackStatus: 'accepted',
+      rawIn: 'ISA*...~',
+      canonical,
+    });
+    expect(txn.id).toMatch(/^txn_/);
+    expect(txn.processedAt).toBeDefined();
+
+    expect(await store.getTransaction('default', txn.id)).toMatchObject({ status: 'transformed' });
+    expect((await store.listTransactions('default', connection.id)).length).toBe(1);
+
+    const dup = await store.findTransactionByControls('default', connection.id, {
+      isa: '000000001',
+      gs: '1',
+      st: '0001',
+    });
+    expect(dup?.id).toBe(txn.id);
+    const miss = await store.findTransactionByControls('default', connection.id, {
+      isa: '000000099',
+      gs: '1',
+      st: '0001',
+    });
+    expect(miss).toBeNull();
+
+    expect(await store.getTransactionRawIn('default', txn.id)).toBe('ISA*...~');
+    expect((await store.getTransactionCanonical('default', txn.id))?.[0]).toMatchObject({
+      shipmentId: '0510938',
+    });
+  });
+
   it('idempotency: stores and replays a response', async () => {
     expect(await store.getIdempotent('default', 'k1')).toBeNull();
     await store.putIdempotent('default', 'k1', { status: 201, body: { ok: true } });

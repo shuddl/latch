@@ -4,16 +4,25 @@
 import { newId } from '@latch/shared';
 import type { MapArtifact } from '@latch/transform';
 import type { CertificationResult } from '@latch/verify';
-import type { Certification, Connection, MapRecord, Partner } from '../domain';
+import type { CanonicalRecord } from '@latch/canonical';
+import type { Certification, Connection, MapRecord, Partner, Transaction } from '../domain';
 import type {
   Clock,
+  ControlNumbers,
   CreateCertificationData,
   CreateConnectionData,
   CreateMapData,
   CreatePartnerData,
+  CreateTransactionData,
   IdempotentResponse,
   Store,
 } from './store';
+
+interface TxnBlobs {
+  rawIn: string;
+  canonical?: CanonicalRecord[];
+  rawOut?: string;
+}
 
 interface TenantData {
   partners: Map<string, Partner>;
@@ -23,6 +32,8 @@ interface TenantData {
   artifacts: Map<string, MapArtifact>; // mapId → artifact
   certifications: Map<string, Certification>;
   certResults: Map<string, CertificationResult>; // certId → full result
+  transactions: Map<string, Transaction>;
+  txnBlobs: Map<string, TxnBlobs>; // txnId → raw/canonical/out
   idempotency: Map<string, IdempotentResponse>;
 }
 
@@ -35,6 +46,8 @@ function emptyTenant(): TenantData {
     artifacts: new Map(),
     certifications: new Map(),
     certResults: new Map(),
+    transactions: new Map(),
+    txnBlobs: new Map(),
     idempotency: new Map(),
   };
 }
@@ -191,6 +204,63 @@ export class InMemoryStore implements Store {
   }
   async getCertificationResult(tenantId: string, id: string): Promise<CertificationResult | null> {
     return clone(this.t(tenantId).certResults.get(id) ?? null);
+  }
+
+  async createTransaction(tenantId: string, data: CreateTransactionData): Promise<Transaction> {
+    const ts = this.now();
+    const txn: Transaction = {
+      id: newId('transaction'),
+      tenantId,
+      connectionId: data.connectionId,
+      ...(data.mapId ? { mapId: data.mapId } : {}),
+      direction: data.direction,
+      transactionSet: data.transactionSet,
+      ...(data.controls.isa ? { isaControl: data.controls.isa } : {}),
+      ...(data.controls.gs ? { gsControl: data.controls.gs } : {}),
+      ...(data.controls.st ? { stControl: data.controls.st } : {}),
+      status: data.status,
+      ...(data.errorDetail ? { errorDetail: data.errorDetail } : {}),
+      ...(data.ackStatus ? { ackStatus: data.ackStatus } : {}),
+      receivedAt: ts,
+      ...(data.status === 'received' ? {} : { processedAt: ts }),
+    };
+    this.t(tenantId).transactions.set(txn.id, txn);
+    this.t(tenantId).txnBlobs.set(txn.id, {
+      rawIn: data.rawIn,
+      ...(data.canonical ? { canonical: data.canonical } : {}),
+      ...(data.rawOut ? { rawOut: data.rawOut } : {}),
+    });
+    return clone(txn);
+  }
+  async getTransaction(tenantId: string, id: string): Promise<Transaction | null> {
+    return clone(this.t(tenantId).transactions.get(id) ?? null);
+  }
+  async listTransactions(tenantId: string, connectionId: string, limit = 100): Promise<Transaction[]> {
+    return [...this.t(tenantId).transactions.values()]
+      .filter((t) => t.connectionId === connectionId)
+      .sort((a, b) => b.receivedAt - a.receivedAt)
+      .slice(0, limit)
+      .map(clone);
+  }
+  async findTransactionByControls(
+    tenantId: string,
+    connectionId: string,
+    controls: ControlNumbers,
+  ): Promise<Transaction | null> {
+    const match = [...this.t(tenantId).transactions.values()].find(
+      (t) =>
+        t.connectionId === connectionId &&
+        t.isaControl === controls.isa &&
+        t.gsControl === controls.gs &&
+        t.stControl === controls.st,
+    );
+    return clone(match ?? null);
+  }
+  async getTransactionRawIn(tenantId: string, id: string): Promise<string | null> {
+    return this.t(tenantId).txnBlobs.get(id)?.rawIn ?? null;
+  }
+  async getTransactionCanonical(tenantId: string, id: string): Promise<CanonicalRecord[] | null> {
+    return clone(this.t(tenantId).txnBlobs.get(id)?.canonical ?? null);
   }
 
   async getIdempotent(tenantId: string, key: string): Promise<IdempotentResponse | null> {

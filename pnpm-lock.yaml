@@ -38,6 +38,9 @@ importers:
       '@latch/canonical':
         specifier: workspace:*
         version: link:../../packages/canonical
+      '@latch/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
       '@latch/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -60,28 +63,6 @@ importers:
       '@types/node':
         specifier: ^22.7.0
         version: 22.19.21
-      typescript:
-        specifier: ^5.6.2
-        version: 5.9.3
-      wrangler:
-        specifier: ^3.78.0
-        version: 3.114.17(@cloudflare/workers-types@4.20260619.1)
-
-  apps/pipeline:
-    dependencies:
-      '@latch/canonical':
-        specifier: workspace:*
-        version: link:../../packages/canonical
-      '@latch/edi-core':
-        specifier: workspace:*
-        version: link:../../packages/edi-core
-      '@latch/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
-    devDependencies:
-      '@cloudflare/workers-types':
-        specifier: ^4.20240925.0
-        version: 4.20260619.1
       typescript:
         specifier: ^5.6.2
         version: 5.9.3
@@ -153,6 +134,25 @@ importers:
         version: 5.9.3
 
   packages/mapgen:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.2
+        version: 5.9.3
+
+  packages/pipeline:
+    dependencies:
+      '@latch/canonical':
+        specifier: workspace:*
+        version: link:../canonical
+      '@latch/edi-core':
+        specifier: workspace:*
+        version: link:../edi-core
+      '@latch/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@latch/transform':
+        specifier: workspace:*
+        version: link:../transform
     devDependencies:
       typescript:
         specifier: ^5.6.2

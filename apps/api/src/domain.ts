@@ -121,3 +121,32 @@ export const goLiveInput = z
 // `undefined`, matching exactOptionalPropertyTypes).
 export type CreatePartnerData = z.infer<typeof createPartnerInput>;
 export type CreateConnectionData = z.infer<typeof createConnectionInput>;
+
+// ── Transactions (live traffic) ──────────────────────────────────────────────
+
+export const transactionStatusSchema = z.enum([
+  'received',
+  'transformed',
+  'delivered',
+  'ack_sent',
+  'error',
+]);
+export type TransactionStatus = z.infer<typeof transactionStatusSchema>;
+
+export const transactionSchema = z.object({
+  id: z.string(),
+  tenantId: z.string(),
+  connectionId: z.string(),
+  mapId: z.string().optional(),
+  direction: directionSchema,
+  transactionSet: z.string(),
+  isaControl: z.string().optional(),
+  gsControl: z.string().optional(),
+  stControl: z.string().optional(),
+  status: transactionStatusSchema,
+  errorDetail: z.string().optional(),
+  ackStatus: z.string().optional(),
+  receivedAt: z.number(),
+  processedAt: z.number().optional(),
+});
+export type Transaction = z.infer<typeof transactionSchema>;

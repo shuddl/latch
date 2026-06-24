@@ -96,6 +96,46 @@ describe('control-plane API', () => {
     expect(detail.latestCert.passed).toBe(true);
   });
 
+  it('processes live inbound traffic: ingest → transaction + 997, dedup, replay', async () => {
+    const { conn, map } = await onboardCertified(h);
+    await h.call(`/v1/maps/${map.id}/certify`, { method: 'POST', body: {} });
+    await h.call(`/v1/connections/${conn.id}/go-live`, { method: 'POST', body: {} });
+
+    // First ingest → 201, transformed, with an accepted 997.
+    const first = await h.call(`/v1/connections/${conn.id}/ingest`, { method: 'POST', body: { raw: FIXTURE_214 } });
+    expect(first.status).toBe(201);
+    const ingest = await h.json(first);
+    expect(ingest.duplicate).toBe(false);
+    expect(ingest.transaction.status).toBe('transformed');
+    expect(ingest.ackStatus).toBe('accepted');
+    expect(ingest.ack).toContain('997');
+
+    // Index + detail.
+    const list = await h.json(await h.call(`/v1/connections/${conn.id}/transactions`));
+    expect(list.length).toBe(1);
+    const detail = await h.json(await h.call(`/v1/transactions/${ingest.transaction.id}`));
+    expect(detail.canonical[0].statusCode).toBe('X1');
+
+    // Re-ingesting the same control numbers is a no-op duplicate (200), still one txn.
+    const dup = await h.call(`/v1/connections/${conn.id}/ingest`, { method: 'POST', body: { raw: FIXTURE_214 } });
+    expect(dup.status).toBe(200);
+    expect((await h.json(dup)).duplicate).toBe(true);
+    expect((await h.json(await h.call(`/v1/connections/${conn.id}/transactions`))).length).toBe(1);
+
+    // Replay recomputes through the current map (dry run).
+    const replay = await h.json(
+      await h.call(`/v1/transactions/${ingest.transaction.id}/replay`, { method: 'POST', body: {} }),
+    );
+    expect(replay.outcome.status).toBe('transformed');
+    expect(replay.outcome.canonical[0].statusCode).toBe('X1');
+  });
+
+  it('rejects ingest on a connection that is not live (409)', async () => {
+    const { conn } = await onboardCertified(h); // certified path not run → still draft
+    const res = await h.call(`/v1/connections/${conn.id}/ingest`, { method: 'POST', body: { raw: FIXTURE_214 } });
+    expect(res.status).toBe(409);
+  });
+
   it('a semantically broken map fails the bar (422) and cannot go live (409)', async () => {
     const partner = await h.json(await h.call('/v1/partners', { method: 'POST', body: { name: 'R&L' } }));
     const conn = await h.json(

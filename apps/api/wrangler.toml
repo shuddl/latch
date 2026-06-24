@@ -37,6 +37,12 @@ queue = "txn-egress"
 binding = "RECERT"
 queue = "recert"
 
+# Inbound transaction processing (the queue consumer in src/index.ts).
+[[queues.consumers]]
+queue = "txn-ingest"
+max_batch_size = 10
+max_retries = 3
+
 [durable_objects]
 bindings = [
   { name = "CONNECTION_DO", class_name = "ConnectionDO" },

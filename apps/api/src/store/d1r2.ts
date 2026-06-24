@@ -9,13 +9,16 @@
 import { newId } from '@latch/shared';
 import type { MapArtifact } from '@latch/transform';
 import type { CertificationResult } from '@latch/verify';
-import type { Certification, Connection, Connectivity, MapRecord, Partner } from '../domain';
+import type { CanonicalRecord } from '@latch/canonical';
+import type { Certification, Connection, Connectivity, MapRecord, Partner, Transaction } from '../domain';
 import type {
   Clock,
+  ControlNumbers,
   CreateCertificationData,
   CreateConnectionData,
   CreateMapData,
   CreatePartnerData,
+  CreateTransactionData,
   IdempotentResponse,
   Store,
 } from './store';
@@ -430,6 +433,134 @@ export class D1R2Store implements Store {
       .first<Row>();
     if (!r) return null;
     return this.getJson<CertificationResult>(str(r['field_results_r2']));
+  }
+
+  // ── Transactions (metadata in D1, bodies in R2) ──────────────────────────────
+  async createTransaction(tenantId: string, data: CreateTransactionData): Promise<Transaction> {
+    const ts = this.now();
+    const id = newId('transaction');
+    const rawInKey = `txn/${tenantId}/${id}/in.edi`;
+    await this.r2.put(rawInKey, data.rawIn);
+    let canonicalKey: string | null = null;
+    if (data.canonical) {
+      canonicalKey = `txn/${tenantId}/${id}/canonical.json`;
+      await this.putJson(canonicalKey, data.canonical);
+    }
+    let rawOutKey: string | null = null;
+    if (data.rawOut) {
+      rawOutKey = `txn/${tenantId}/${id}/out.edi`;
+      await this.r2.put(rawOutKey, data.rawOut);
+    }
+    const processedAt = data.status === 'received' ? null : ts;
+    await this.db
+      .prepare(
+        `INSERT INTO transactions (id, tenant_id, connection_id, map_id, direction, transaction_set, isa_control, gs_control, st_control, raw_in_r2, canonical_r2, raw_out_r2, status, error_detail, ack_status, received_at, processed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        id,
+        tenantId,
+        data.connectionId,
+        data.mapId ?? null,
+        data.direction,
+        data.transactionSet,
+        data.controls.isa ?? null,
+        data.controls.gs ?? null,
+        data.controls.st ?? null,
+        rawInKey,
+        canonicalKey,
+        rawOutKey,
+        data.status,
+        data.errorDetail ?? null,
+        data.ackStatus ?? null,
+        ts,
+        processedAt,
+      )
+      .run();
+    return this.rowToTransaction({
+      id,
+      tenant_id: tenantId,
+      connection_id: data.connectionId,
+      map_id: data.mapId ?? null,
+      direction: data.direction,
+      transaction_set: data.transactionSet,
+      isa_control: data.controls.isa ?? null,
+      gs_control: data.controls.gs ?? null,
+      st_control: data.controls.st ?? null,
+      status: data.status,
+      error_detail: data.errorDetail ?? null,
+      ack_status: data.ackStatus ?? null,
+      received_at: ts,
+      processed_at: processedAt,
+    });
+  }
+  private rowToTransaction(r: Row): Transaction {
+    return {
+      id: str(r['id']),
+      tenantId: str(r['tenant_id']),
+      connectionId: str(r['connection_id']),
+      ...(optStr(r['map_id']) ? { mapId: str(r['map_id']) } : {}),
+      direction: str(r['direction']) as Transaction['direction'],
+      transactionSet: str(r['transaction_set']),
+      ...(optStr(r['isa_control']) ? { isaControl: str(r['isa_control']) } : {}),
+      ...(optStr(r['gs_control']) ? { gsControl: str(r['gs_control']) } : {}),
+      ...(optStr(r['st_control']) ? { stControl: str(r['st_control']) } : {}),
+      status: str(r['status']) as Transaction['status'],
+      ...(optStr(r['error_detail']) ? { errorDetail: str(r['error_detail']) } : {}),
+      ...(optStr(r['ack_status']) ? { ackStatus: str(r['ack_status']) } : {}),
+      receivedAt: num(r['received_at']),
+      ...(r['processed_at'] != null ? { processedAt: num(r['processed_at']) } : {}),
+    };
+  }
+  async getTransaction(tenantId: string, id: string): Promise<Transaction | null> {
+    const r = await this.db
+      .prepare(`SELECT * FROM transactions WHERE id = ? AND tenant_id = ?`)
+      .bind(id, tenantId)
+      .first<Row>();
+    return r ? this.rowToTransaction(r) : null;
+  }
+  async listTransactions(tenantId: string, connectionId: string, limit = 100): Promise<Transaction[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT * FROM transactions WHERE tenant_id = ? AND connection_id = ? ORDER BY received_at DESC LIMIT ?`,
+      )
+      .bind(tenantId, connectionId, limit)
+      .all<Row>();
+    return results.map((r) => this.rowToTransaction(r));
+  }
+  async findTransactionByControls(
+    tenantId: string,
+    connectionId: string,
+    controls: ControlNumbers,
+  ): Promise<Transaction | null> {
+    // IFNULL so NULL control numbers compare equal (NULL = NULL is NULL in SQL).
+    const r = await this.db
+      .prepare(
+        `SELECT * FROM transactions
+         WHERE tenant_id = ? AND connection_id = ?
+           AND IFNULL(isa_control,'') = ? AND IFNULL(gs_control,'') = ? AND IFNULL(st_control,'') = ?
+         LIMIT 1`,
+      )
+      .bind(tenantId, connectionId, controls.isa ?? '', controls.gs ?? '', controls.st ?? '')
+      .first<Row>();
+    return r ? this.rowToTransaction(r) : null;
+  }
+  async getTransactionRawIn(tenantId: string, id: string): Promise<string | null> {
+    const r = await this.db
+      .prepare(`SELECT raw_in_r2 FROM transactions WHERE id = ? AND tenant_id = ?`)
+      .bind(id, tenantId)
+      .first<Row>();
+    if (!r) return null;
+    const obj = await this.r2.get(str(r['raw_in_r2']));
+    return obj ? obj.text() : null;
+  }
+  async getTransactionCanonical(tenantId: string, id: string): Promise<CanonicalRecord[] | null> {
+    const r = await this.db
+      .prepare(`SELECT canonical_r2 FROM transactions WHERE id = ? AND tenant_id = ?`)
+      .bind(id, tenantId)
+      .first<Row>();
+    if (!r || !optStr(r['canonical_r2'])) return null;
+    return this.getJson<CanonicalRecord[]>(str(r['canonical_r2']));
   }
 
   // ── Idempotency (KV) ─────────────────────────────────────────────────────────

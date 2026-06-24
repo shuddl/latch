@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@latch/canonical": "workspace:*",
+    "@latch/pipeline": "workspace:*",
     "@latch/shared": "workspace:*",
     "@latch/transform": "workspace:*",
     "@latch/verify": "workspace:*",

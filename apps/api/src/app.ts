@@ -13,6 +13,7 @@ import {
   type MapArtifact,
 } from '@latch/transform';
 import { buildCorpus214, certify } from '@latch/verify';
+import { processInbound } from '@latch/pipeline';
 import type { AppEnv, Env } from './env';
 import type { Store } from './store/store';
 import {
@@ -21,6 +22,7 @@ import {
   createPartnerInput,
   goLiveInput,
 } from './domain';
+import { ingestInbound } from './ingest';
 import { z } from 'zod';
 
 const ORG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -288,5 +290,69 @@ export function createApp(getStore: (env: Env) => Store): Hono<AppEnv> {
     return c.json(updated);
   });
 
+  // ── Live traffic ─────────────────────────────────────────────────────────────
+  // Inbound ingest (API/webhook transport; SFTP/AS2 adapters enqueue the same work).
+  app.post('/v1/connections/:id/ingest', async (c) => {
+    const store = c.get('store');
+    const tenantId = c.get('tenantId');
+    const connection = await store.getConnection(tenantId, c.req.param('id'));
+    if (!connection) throw new LatchError('NOT_FOUND', 'Connection not found');
+    if (connection.status !== 'production' || !connection.activeMapId) {
+      throw new LatchError('CONFLICT', 'Connection is not live; certify and go live first.');
+    }
+    const artifact = await store.getMapArtifact(tenantId, connection.activeMapId);
+    if (!artifact) throw new LatchError('INTERNAL', 'Active map artifact missing');
+
+    const { raw } = await readJson(c, z.object({ raw: z.string().min(1) }));
+    const result = await ingestInbound(store, tenantId, connection, connection.activeMapId, artifact, raw);
+    c.get('log').info('ingest', {
+      connectionId: connection.id,
+      txnId: result.transaction.id,
+      status: result.transaction.status,
+      duplicate: result.duplicate,
+    });
+    return c.json(result, result.duplicate ? 200 : 201);
+  });
+
+  app.get('/v1/connections/:id/transactions', async (c) => {
+    const store = c.get('store');
+    const tenantId = c.get('tenantId');
+    const connection = await store.getConnection(tenantId, c.req.param('id'));
+    if (!connection) throw new LatchError('NOT_FOUND', 'Connection not found');
+    const limit = Math.min(Number(c.req.query('limit') ?? 100) || 100, 500);
+    return c.json(await store.listTransactions(tenantId, connection.id, limit));
+  });
+
+  app.get('/v1/transactions/:id', async (c) => {
+    const store = c.get('store');
+    const tenantId = c.get('tenantId');
+    const txn = await store.getTransaction(tenantId, c.req.param('id'));
+    if (!txn) throw new LatchError('NOT_FOUND', 'Transaction not found');
+    const canonical = await store.getTransactionCanonical(tenantId, txn.id);
+    return c.json({ ...txn, canonical });
+  });
+
+  // Replay a stored transaction through the current (or a specified) map — a dry run
+  // that recomputes canonical + ack without persisting, for diffing and debugging.
+  app.post('/v1/transactions/:id/replay', async (c) => {
+    const store = c.get('store');
+    const tenantId = c.get('tenantId');
+    const txn = await store.getTransaction(tenantId, c.req.param('id'));
+    if (!txn) throw new LatchError('NOT_FOUND', 'Transaction not found');
+    const raw = await store.getTransactionRawIn(tenantId, txn.id);
+    if (!raw) throw new LatchError('NOT_FOUND', 'Raw inbound for this transaction is unavailable');
+
+    const body = await readJson(c, z.object({ mapId: z.string().optional() }).default({}));
+    const connection = await store.getConnection(tenantId, txn.connectionId);
+    const mapId = body.mapId ?? connection?.activeMapId ?? txn.mapId;
+    if (!mapId) throw new LatchError('CONFLICT', 'No map to replay through.');
+    const artifact = await store.getMapArtifact(tenantId, mapId);
+    if (!artifact) throw new LatchError('NOT_FOUND', 'Map not found');
+
+    const outcome = processInbound(raw, artifact);
+    return c.json({ transactionId: txn.id, mapId, outcome });
+  });
+
   return app;
 }
+
