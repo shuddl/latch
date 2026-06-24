@@ -161,6 +161,17 @@ function applyRule(
       }
       return;
     }
+    case 'codemap': {
+      const code = readElement(bodyDoc, rule.source);
+      if (code === undefined || code === '') return;
+      // `code` is EDI-controlled: own-property guard so 'toString'/'constructor' can't
+      // resolve to an Object.prototype member instead of a real table entry.
+      const mapped = Object.prototype.hasOwnProperty.call(rule.table, code) ? rule.table[code] : undefined;
+      if (mapped !== undefined) setPath(record, rule.path, mapped);
+      else if (rule.onMiss === 'passthrough') setPath(record, rule.path, code);
+      else warnings.push({ code: 'TRANSFORM', message: `No canonical mapping for code "${code}" at ${rule.path}`, path: rule.path });
+      return;
+    }
   }
 }
 

@@ -39,7 +39,9 @@ Execute top-to-bottom. Each task is a vertical slice with an explicit acceptance
 - [ ] **DoD-2:** drop a real 214 on SFTP → parsed, transformed, persisted, 997 returned, visible in UI; replay works; duplicates ignored.
 
 ## Milestone 3 — Six sets + AS2
-- [ ] **3.1** Extend ingestor/mapgen/verify/transform to **204, 990, 211, 210, 997** (inbound+outbound as relevant; 204↔990 pairing; 210 invoice; 211 BOL). Add fixtures per set.
+- [~] **3.1** Extend ingestor/mapgen/verify/transform to **204, 990, 211, 210, 997** (inbound+outbound as relevant; 204↔990 pairing; 210 invoice; 211 BOL). Add fixtures per set.
+  - [x] **3.1a — 990 (TenderResponse), the second flat set.** Hand-authored `MAP_990_TENDERRESPONSE`, `buildCorpus990`, `fixtures/990`. Added a reusable **`codemap`** rule kind (forward-only EDI-code→canonical-enum via a declared table; write-back rides in the raw snapshot so round-trip stays byte-faithful) — the engine, the differential oracle, and the mapgen prompt all understand it. Added a **transaction-set registry** (`apps/api/src/transaction-sets.ts`) so maps/generate-map/certify/drift route by set instead of `=== '214'`. 990 onboards→certifies→goes-live→ingests end-to-end (API test). 111 tests green.
+  - [ ] **3.1b — repeating-loop sets (204 Tender stops[]/freight[], 210 Invoice charges[], 211 BOL freight[]).** Needs a `loop` rule kind: map a repeating segment window to a canonical array, with byte-faithful round-trip (item i ↔ window i, overlay element write-backs onto the snapshot) and loop-aware differential-oracle coverage. 211 party loops (N1*SH/CN/BT) additionally want qualifier-filtered single-element addressing. Scope as its own PR — the loop write-back deserves dedicated golden tests.
 - [ ] **3.2** AS2 adapter (sign/encrypt/MDN; encrypted cert material). VAN interconnect documented + stubbed.
 - [ ] **3.3** Outbound generation paths (emit 990 for a 204; emit 214/210).
 - [ ] **3.4** Spec Library: every passing cert normalizes + accretes a `spec_library` entry.

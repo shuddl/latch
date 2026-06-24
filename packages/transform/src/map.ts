@@ -13,6 +13,10 @@
 //               named builtin (e.g. AT7 date+time → advisory ISO). NOT written back, so
 //               its authoritative source elements ride untouched in `raw` (G2: no
 //               timezone/precision loss on round-trip).
+//  - `codemap`  forward-only: a single EDI code element → a canonical enum value via a
+//               declared lookup table (e.g. 990 B1_04 'A'/'D' → 'accept'/'decline').
+//               NOT written back — the authoritative source code rides verbatim in `raw`,
+//               so round-trip stays byte-faithful even when the table isn't 1:1.
 
 import { z } from 'zod';
 import { elementAddressSchema } from './address-schema';
@@ -36,10 +40,21 @@ export const derivedRuleSchema = z.object({
   transform: z.enum(['dateTimeToIso']),
 });
 
+export const codemapRuleSchema = z.object({
+  kind: z.literal('codemap'),
+  path: z.string(), // canonical enum path, e.g. 'decision'
+  source: elementAddressSchema,
+  /** EDI code → canonical value. Forward-only; write-back rides in the raw snapshot. */
+  table: z.record(z.string(), z.string()),
+  /** Source code absent from the table: 'unset' (warn, leave unmapped) or 'passthrough'. */
+  onMiss: z.enum(['unset', 'passthrough']).default('unset'),
+});
+
 export const fieldRuleSchema = z.discriminatedUnion('kind', [
   elementRuleSchema,
   constRuleSchema,
   derivedRuleSchema,
+  codemapRuleSchema,
 ]);
 export type FieldRule = z.infer<typeof fieldRuleSchema>;
 
