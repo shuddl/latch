@@ -1,55 +1,50 @@
-// apps/api — Cloudflare Worker: REST control plane (docs/08).
-// M0 scope: /v1/health + dev-stub auth + declared bindings. Real endpoints land in M1.
+// apps/api — Cloudflare Worker entry. Hosts the control-plane HTTP API and the
+// inbound transaction-processing queue consumer, both backed by the production D1+R2
+// store (docs/04, docs/08). Durable Objects are exported for the declared bindings.
 
-import { Hono } from 'hono';
+import { createApp } from './app';
+import { D1R2Store } from './store/d1r2';
+import { ingestInbound } from './ingest';
+import type { Env } from './env';
 
-export interface Env {
-  LATCH_DB: D1Database;
-  LATCH_KV: KVNamespace;
-  LATCH_R2: R2Bucket;
-  TXN_INGEST: Queue;
-  TXN_EGRESS: Queue;
-  RECERT: Queue;
-  CONNECTION_DO: DurableObjectNamespace;
-  HANDSHAKE_DO: DurableObjectNamespace;
-  LATCH_DEV_DEFAULT_ORG?: string;
+const app = createApp((env) => new D1R2Store(env.LATCH_DB, env.LATCH_R2, env.LATCH_KV));
+
+interface InboundMessage {
+  tenantId: string;
+  connectionId: string;
+  raw: string;
 }
 
-type Variables = { tenantId: string };
+export default {
+  fetch: app.fetch,
 
-const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  // txn-ingest consumer: the connectivity adapters (SFTP/AS2) archive raw inbound to
+  // R2 and enqueue; here we transform via the pinned map and persist (docs/04).
+  async queue(batch: MessageBatch<InboundMessage>, env: Env): Promise<void> {
+    const store = new D1R2Store(env.LATCH_DB, env.LATCH_R2, env.LATCH_KV);
+    for (const msg of batch.messages) {
+      try {
+        const { tenantId, connectionId, raw } = msg.body;
+        const connection = await store.getConnection(tenantId, connectionId);
+        if (!connection?.activeMapId) {
+          msg.ack(); // nothing we can do; don't retry forever
+          continue;
+        }
+        const artifact = await store.getMapArtifact(tenantId, connection.activeMapId);
+        if (!artifact) {
+          msg.ack();
+          continue;
+        }
+        await ingestInbound(store, tenantId, connection, connection.activeMapId, artifact, raw);
+        msg.ack();
+      } catch (err) {
+        console.error(JSON.stringify({ msg: 'queue processing failed', id: msg.id, error: String(err) }));
+        msg.retry();
+      }
+    }
+  },
+};
 
-// Accepted tenant-id shape: lowercase/alnum + `_-`, 1–64 chars. Anything else is
-// rejected (not used as a raw value) to avoid arbitrary header-driven behavior and
-// D1 FK failures against unseeded tenants. Real tenant resolution lands with Clerk (M5).
-const ORG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-
-// Dev-stub auth (CLAUDE.md §2.3): X-Latch-Dev-Org → tenant_id. The API shape does
-// not change when Clerk lands at M5; only this middleware is replaced.
-app.use('*', async (c, next) => {
-  const fallback = c.env.LATCH_DEV_DEFAULT_ORG ?? 'default';
-  const header = c.req.header('X-Latch-Dev-Org');
-  c.set('tenantId', header && ORG_RE.test(header) ? header : fallback);
-  await next();
-});
-
-app.get('/v1/health', (c) =>
-  c.json({
-    status: 'ok',
-    service: 'latch-api',
-    tenant: c.get('tenantId'),
-    time: new Date().toISOString(),
-  }),
-);
-
-app.notFound((c) =>
-  c.json({ error: { code: 'NOT_FOUND', message: 'No such endpoint' } }, 404),
-);
-
-export default app;
-
-// Minimal Durable Objects so bindings are real and deployable. Behavior arrives in
-// M2 (ConnectionDO: control-number sequencing) and M6 (HandshakeDO: HSP state).
 export class ConnectionDO {
   constructor(
     readonly state: DurableObjectState,

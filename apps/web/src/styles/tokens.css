@@ -1,0 +1,139 @@
+/* Latch design tokens (docs/09). Monochrome, typography-led, generous whitespace.
+   Color communicates proof, never decoration: green = proven, amber = attention,
+   red = blocked/failed. Pair color with icon/label — never color alone (WCAG AA). */
+
+:root {
+  /* Neutrals — near-black ink on warm off-white paper. */
+  --ink-900: #0b0c0e;
+  --ink-700: #2a2d33;
+  --ink-500: #5a5f6a;
+  --ink-300: #9aa0ab;
+  --ink-200: #c8ccd3;
+  --ink-100: #e7e9ee;
+  --paper: #fbfbfa;
+  --paper-raised: #ffffff;
+
+  /* Proof palette. */
+  --proven: #1f8f4e; /* green */
+  --proven-soft: #e6f4ea;
+  --attention: #b6791f; /* amber */
+  --attention-soft: #fbf0db;
+  --failed: #c0392b; /* red */
+  --failed-soft: #fbe9e7;
+
+  /* Type scale (1.25). */
+  --t-xs: 0.78rem;
+  --t-sm: 0.9rem;
+  --t-base: 1rem;
+  --t-lg: 1.25rem;
+  --t-xl: 1.6rem;
+  --t-2xl: 2.1rem;
+  --t-3xl: 3rem;
+
+  /* Space scale. */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 72px;
+
+  --radius: 10px;
+  --radius-lg: 16px;
+  --border: 1px solid var(--ink-100);
+  --shadow: 0 1px 2px rgba(11, 12, 14, 0.04), 0 8px 24px rgba(11, 12, 14, 0.05);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--ink-900);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+  letter-spacing: -0.011em;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  margin: 0;
+  font-weight: 650;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Primary action — calm, confident, one per screen. */
+.btn {
+  appearance: none;
+  border: var(--border);
+  background: var(--paper-raised);
+  color: var(--ink-900);
+  padding: var(--s-3) var(--s-5);
+  border-radius: var(--radius);
+  font-size: var(--t-base);
+  font-weight: 550;
+  transition: transform 0.06s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.btn:hover {
+  border-color: var(--ink-300);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--ink-900);
+  color: var(--paper-raised);
+  border-color: var(--ink-900);
+}
+.btn-primary:hover {
+  background: #000;
+}
+.btn-go {
+  background: var(--proven);
+  border-color: var(--proven);
+  color: #fff;
+}
+.btn-go:hover {
+  background: #1a7d44;
+}
+
+.card {
+  background: var(--paper-raised);
+  border: var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+
+.muted {
+  color: var(--ink-500);
+}

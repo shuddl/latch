@@ -16,7 +16,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22+ ships node:sqlite, used to integration-test the production D1 store.
+          node-version: 22
           cache: pnpm
 
       - name: Install
