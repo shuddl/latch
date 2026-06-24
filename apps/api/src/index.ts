@@ -4,6 +4,7 @@
 
 import { createApp } from './app';
 import { D1R2Store } from './store/d1r2';
+import { KvRateLimiter } from './ratelimit';
 import { ingestInbound } from './ingest';
 import { createAnthropicClient } from '@latch/shared';
 import type { Env } from './env';
@@ -19,6 +20,8 @@ const app = createApp(
           ...(env.ANTHROPIC_MODEL ? { model: env.ANTHROPIC_MODEL } : {}),
         })
       : null,
+  // Per-tenant rate limiting on KV (a soft limit; fails open on a KV hiccup).
+  (env) => new KvRateLimiter(env.LATCH_KV),
 );
 
 interface InboundMessage {

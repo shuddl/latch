@@ -97,7 +97,7 @@ markers; all stubs are explicit (501 DOs, empty `connectivity`/`handshake` packa
 - **OP-4 — PDF guide ingestion:** `ingestSpec` takes guide *text*; PDF/DOCX upload + Anthropic native-PDF path not wired. → M1.1 follow-up.
 
 **Production hardening (before M5 GA)**
-- **PG-1 — Rate limiting:** none per-tenant/connection. → M5.2 (DO + KV).
+- **PG-1 — Rate limiting:** DONE (M5.2). Per-tenant fixed-window limiter injected into `createApp` (`RateLimiter` seam: `InMemoryRateLimiter` for tests/dev, `KvRateLimiter` for prod — fails open on a KV hiccup). Middleware sets `X-RateLimit-*`, returns 429 + `Retry-After` over the limit; health is exempt; limit configurable via `LATCH_RATE_LIMIT` (default 300/60s). **Note:** KV is eventually consistent → a *soft* limit; a Durable Object gives hard per-tenant/connection limits if needed (ties to the 2.3 ConnectionDO follow-up).
 - **PG-2 — Auth:** dev-stub `X-Latch-Dev-Org` header only (intentional, CLAUDE.md §2.3). → M5.1 Clerk.
 - **PG-3 — Observability/alerting:** structured logs + requestId only; no metrics/alerting. → M5.2.
 - **PG-4 — Secret rotation/audit runbook:** not written. → M5.2.

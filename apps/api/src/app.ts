@@ -28,6 +28,7 @@ import {
 } from './domain';
 import { ingestInbound } from './ingest';
 import { transactionSetDef, SUPPORTED_TRANSACTION_SETS } from './transaction-sets';
+import { type RateLimiter, RATE_LIMIT_DEFAULT, RATE_WINDOW_SEC_DEFAULT } from './ratelimit';
 import { z } from 'zod';
 
 const ORG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -70,6 +71,7 @@ async function readJson<S extends z.ZodTypeAny>(
 export function createApp(
   getStore: (env: Env) => Store,
   getLlm: (env: Env) => LlmClient | null = () => null,
+  getRateLimiter: (env: Env) => RateLimiter | null = () => null,
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
@@ -86,6 +88,25 @@ export function createApp(
     c.set('llm', getLlm(c.env));
     c.set('log', createLogger({ requestId, tenantId, path: c.req.path, method: c.req.method }));
     c.header('X-Request-Id', requestId);
+
+    // Per-tenant rate limit (PG-1). Health is exempt so liveness probes never trip it.
+    const limiter = getRateLimiter(c.env);
+    if (limiter && c.req.path !== '/v1/health') {
+      // Use the override only if it parses to a positive integer; '0'/negative/NaN → default
+      // (treating a stray 0 as "no override" rather than an accidental total lockout).
+      const configured = Math.floor(Number(c.env.LATCH_RATE_LIMIT));
+      const limit = Number.isFinite(configured) && configured > 0 ? configured : RATE_LIMIT_DEFAULT;
+      const decision = await limiter.hit(tenantId, limit, RATE_WINDOW_SEC_DEFAULT);
+      c.header('X-RateLimit-Limit', String(decision.limit));
+      c.header('X-RateLimit-Remaining', String(decision.remaining));
+      if (!decision.allowed) {
+        c.header('Retry-After', String(decision.resetSec));
+        return c.json(
+          { error: { code: 'RATE_LIMITED', message: 'Too many requests; slow down and retry shortly.' } },
+          429,
+        );
+      }
+    }
     await next();
   });
 
