@@ -161,9 +161,12 @@ function applyRule(
       return;
     case 'element': {
       const value = readElement(bodyDoc, rule.source);
-      if (value === undefined || value === '') return;
+      // Trim only for the populated-check and the numeric parse — `Number("   ")` is 0, so a
+      // whitespace-only element must read as empty, not zero. Uncast values are stored
+      // verbatim (untrimmed) so bidirectional write-back stays byte-faithful.
+      if (value === undefined || value.trim() === '') return;
       if (rule.cast === 'number') {
-        const n = Number(value);
+        const n = Number(value.trim());
         if (Number.isFinite(n)) setPath(record, rule.path, n);
         else warnings.push({ code: 'TRANSFORM', message: `Could not parse number for ${rule.path} from "${value}"`, path: rule.path });
       } else {
@@ -181,7 +184,7 @@ function applyRule(
       return;
     }
     case 'codemap': {
-      const code = readElement(bodyDoc, rule.source);
+      const code = readElement(bodyDoc, rule.source)?.trim();
       if (code === undefined || code === '') return;
       // `code` is EDI-controlled: own-property guard so 'toString'/'constructor' can't
       // resolve to an Object.prototype member instead of a real table entry.
@@ -295,7 +298,7 @@ export function fromCanonical(
       const windows = sliceWindows(body, loop.anchor);
       const n = Math.min(windows.length, arr.length);
       for (let k = 0; k < n; k++) {
-        const item = arr[k] as Record<string, unknown>;
+        const item = (arr[k] ?? {}) as Record<string, unknown>;
         for (const child of loop.fields) {
           if (child.kind !== 'element' || child.cast) continue;
           const v = getPath(item, child.path);

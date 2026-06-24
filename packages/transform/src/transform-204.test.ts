@@ -85,6 +85,25 @@ describe('transform/fromCanonical (204) — byte-faithful round-trip through loo
     expect(wire).toContain('N1*CN*BETA RECEIVING*93*BETA01'); // stop 1 untouched
   });
 
+  it('treats a whitespace-only numeric element as unset, not 0 (no Number("   ")=0 bug)', () => {
+    // Pad the first AT8 weight (15000) with spaces only; a cast must skip it, not read 0.
+    const padded = SAMPLE_204.replace('AT8*G*L*15000*40~S5*2', 'AT8*G*L*   *40~S5*2');
+    const doc = edi.parse(padded);
+    expect(doc.ok).toBe(true);
+    if (!doc.ok) return;
+    const fwd = toCanonical(map, doc.value);
+    expect(fwd.ok).toBe(true);
+    if (!fwd.ok) return;
+    const rec = fwd.value[0]!;
+    if (rec.kind !== 'Tender') return;
+    expect(rec.freight[0]?.weight).toBeUndefined(); // skipped, not 0
+    expect(rec.freight[0]?.pieces).toBe(40); // sibling still parsed
+    // And the padded source still round-trips byte-faithfully (rides in the snapshot).
+    const back = fromCanonical(map, fwd.value);
+    if (!back.ok) return;
+    expect(edi.serialize(back.value)).toBe(padded);
+  });
+
   it('keeps cast/codemap loop children forward-only (a cast edit does not corrupt the wire)', () => {
     const doc = edi.parse(SAMPLE_204);
     if (!doc.ok) return;

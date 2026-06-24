@@ -117,9 +117,11 @@ function diffChild(
 ): void {
   if (rule.kind === 'element') {
     const raw = readElement(doc, rule.source);
-    if (raw === undefined || raw === '') return; // not populated → not required at path
+    // Match the engine: trim only the populated-check + numeric parse; compare the
+    // uncast string against the engine's verbatim (untrimmed) stored value.
+    if (raw === undefined || raw.trim() === '') return; // not populated → not required at path
     if (rule.cast === 'number') {
-      const n = Number(raw);
+      const n = Number(raw.trim());
       if (!Number.isFinite(n)) return;
       const got = getPath(target, rule.path);
       if (got !== n) issues.push(`${label}${rule.path}: engine has ${JSON.stringify(got)} but source ${formatAddress(rule.source)} casts to ${JSON.stringify(n)}`);
@@ -128,7 +130,7 @@ function diffChild(
     const got = getPath(target, rule.path);
     if (got !== raw) issues.push(`${label}${rule.path}: engine has ${JSON.stringify(got)} but source ${formatAddress(rule.source)} is ${JSON.stringify(raw)}`);
   } else if (rule.kind === 'codemap') {
-    const code = readElement(doc, rule.source);
+    const code = readElement(doc, rule.source)?.trim();
     if (code === undefined || code === '') return;
     const mapped = Object.prototype.hasOwnProperty.call(rule.table, code) ? rule.table[code] : undefined;
     const expected = mapped ?? (rule.onMiss === 'passthrough' ? code : undefined);
