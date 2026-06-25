@@ -115,7 +115,13 @@ export const api = {
       body: JSON.stringify(input),
     });
     const body = JSON.parse((await res.text()) || 'null');
-    if (res.status === 200 || res.status === 422) return body as HandshakeOutcome;
+    // A 422 is a real, renderable handshake outcome ONLY when it's a HandshakeOutcome
+    // (has a boolean `ok`). A 422 from input/schema validation or missing DO bindings is a
+    // standard error envelope ({ error: { code, message } }) — throw it, never return it
+    // (rendering its object `error` as a React child would crash the manifest view).
+    if (res.status === 200 || (res.status === 422 && body && typeof body.ok === 'boolean')) {
+      return body as HandshakeOutcome;
+    }
     const e = body?.error ?? {};
     throw new ApiError(e.code ?? 'ERROR', e.message ?? `Handshake failed (${res.status})`, res.status);
   },

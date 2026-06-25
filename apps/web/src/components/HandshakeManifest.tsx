@@ -14,7 +14,15 @@ function short(s: string | undefined, head = 10, tail = 6): string {
   return s.length <= head + tail + 1 ? s : `${s.slice(0, head)}…${s.slice(-tail)}`;
 }
 
-export function HandshakeManifest({ outcome }: { outcome: HandshakeOutcome }) {
+export function HandshakeManifest({
+  outcome,
+  initiatorOrg,
+  responderOrg,
+}: {
+  outcome: HandshakeOutcome;
+  initiatorOrg?: string | undefined;
+  responderOrg?: string | undefined;
+}) {
   const ok = outcome.ok;
   const signed = outcome.signedManifest;
   const m = signed?.manifest;
@@ -41,13 +49,23 @@ export function HandshakeManifest({ outcome }: { outcome: HandshakeOutcome }) {
 
       {/* The two parties shaking hands. */}
       <div className="hs-parties">
-        <PartyCard role="Initiator" org={initiator?.latchOrg ?? '—'} keyId={initiator?.keyId} status={outcome.initiatorStatus} />
+        <PartyCard
+          role="Initiator"
+          org={initiator?.latchOrg ?? initiatorOrg ?? '—'}
+          keyId={initiator?.keyId}
+          status={outcome.initiatorStatus}
+        />
         <div className="hs-link" aria-hidden>
           <span className="hs-link-line" />
           <span className="hs-link-glyph">{ok ? '✓' : '✕'}</span>
           <span className="hs-link-line" />
         </div>
-        <PartyCard role="Responder" org={responder?.latchOrg ?? '—'} keyId={responder?.keyId} status={outcome.responderStatus} />
+        <PartyCard
+          role="Responder"
+          org={responder?.latchOrg ?? responderOrg ?? '—'}
+          keyId={responder?.keyId}
+          status={outcome.responderStatus}
+        />
       </div>
 
       {/* Six-phase progress. */}

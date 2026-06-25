@@ -326,7 +326,7 @@ function ConnectView({ onDone }: { onDone: () => void }) {
         </div>
       ) : (
         <>
-          <HandshakeManifest outcome={outcome} />
+          <HandshakeManifest outcome={outcome} initiatorOrg={initiator.org} responderOrg={responder.org} />
           <div className="wizard-actions">
             <button className="btn" onClick={() => setOutcome(null)}>
               Run another
@@ -347,16 +347,25 @@ function PartyForm({
   value: { org: string; mapId: string; set: string };
   onChange: (v: { org: string; mapId: string; set: string }) => void;
 }) {
+  // PartyForm renders twice on the page, so ids must be unique per party for label/input
+  // association (WCAG AA — the design language requires it).
+  const p = title.toLowerCase();
   return (
     <div className="card connect-party">
       <span className="connect-party-title">{title}</span>
       <div className="field">
-        <label>Org</label>
-        <input className="input" value={value.org} onChange={(e) => onChange({ ...value, org: e.target.value })} />
+        <label htmlFor={`${p}-org`}>Org</label>
+        <input
+          id={`${p}-org`}
+          className="input"
+          value={value.org}
+          onChange={(e) => onChange({ ...value, org: e.target.value })}
+        />
       </div>
       <div className="field">
-        <label>Map ID</label>
+        <label htmlFor={`${p}-mapId`}>Map ID</label>
         <input
+          id={`${p}-mapId`}
           className="input"
           placeholder="map_…"
           value={value.mapId}
@@ -364,8 +373,13 @@ function PartyForm({
         />
       </div>
       <div className="field">
-        <label>Transaction set</label>
-        <input className="input" value={value.set} onChange={(e) => onChange({ ...value, set: e.target.value })} />
+        <label htmlFor={`${p}-set`}>Transaction set</label>
+        <input
+          id={`${p}-set`}
+          className="input"
+          value={value.set}
+          onChange={(e) => onChange({ ...value, set: e.target.value })}
+        />
       </div>
     </div>
   );

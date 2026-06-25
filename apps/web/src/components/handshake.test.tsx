@@ -42,7 +42,7 @@ describe('HandshakeManifest', () => {
     expect(screen.getByText('Responder signature')).toBeTruthy();
   });
 
-  it('renders a failure verdict with the error and no manifest', () => {
+  it('renders a failure verdict with the error, fallback org names, and no manifest', () => {
     const failed: HandshakeOutcome = {
       sessionId: 's',
       ok: false,
@@ -51,9 +51,12 @@ describe('HandshakeManifest', () => {
       signedManifest: null,
       error: 'co-certification mismatch: peer did not reproduce the intended canonical',
     };
-    render(<HandshakeManifest outcome={failed} />);
+    render(<HandshakeManifest outcome={failed} initiatorOrg="acme" responderOrg="beta" />);
     expect(screen.getByText('Handshake did not certify')).toBeTruthy();
     expect(screen.getByText(/co-certification mismatch/)).toBeTruthy();
+    // Even with no manifest, the parties are still named from the form-state fallbacks.
+    expect(screen.getByText('acme')).toBeTruthy();
+    expect(screen.getByText('beta')).toBeTruthy();
     expect(screen.queryByText('Certification manifest')).toBeNull();
   });
 });
