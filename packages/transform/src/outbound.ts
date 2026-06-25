@@ -3,16 +3,21 @@
 // freshly-authored outbound document, e.g. a 990 emitted in response to a received 204).
 // Still deterministic, still NO LLM.
 //
-// The body skeleton is derived from the map's flat rules: each element/codemap/derived rule
-// names a (tag, occurrence) segment and an element position; we materialize those segments
-// (in first-seen order) and fill them in reverse:
-//   - element : canonical value → element string (cast values are stringified — the outbound
-//               document has no prior lexical form to preserve, so String(n) is correct)
-//   - codemap : canonical enum → EDI code via the INVERSE table
-//   - const   : canonical-only (e.g. `kind`) → never emitted to EDI
-//   - derived : forward-only and not reversible (e.g. ISO ← date+time) → skipped with a warning
-// Repeating loops/groups outbound are a documented follow-up; v1 covers the flat sets
-// (990, 214), which is the 204↔990 response pairing that matters first.
+// The body is materialized from the map's rules:
+//   - flat rules (element/codemap/const/derived) → top-level segments, filled in reverse:
+//       element : canonical value → element string (cast values are stringified — the outbound
+//                 document has no prior lexical form to preserve, so String(n) is correct)
+//       codemap : canonical enum → EDI code via the INVERSE table
+//       const   : canonical-only (e.g. `kind`) → never emitted to EDI
+//       derived : forward-only and not reversible (e.g. ISO ← date+time) → skipped with a warning
+//   - loop  → one window per canonical array item (anchor segment + child segments)
+//   - group → one qualifier-stamped window when the canonical object is present
+//
+// Because there is no snapshot to guarantee fidelity, `buildOutbound` is SELF-VERIFYING: it
+// parses the document it just built back through `toCanonical` and confirms it reproduces the
+// intended canonical. If it does not (a map structure outbound can't faithfully express — e.g.
+// a derived field whose sources aren't mapped, or colliding loop/flat tags), it returns a
+// clear error instead of emitting a wrong document. Correctness is the product (CLAUDE.md §2).
 
 import {
   buildInterchange,
@@ -23,8 +28,9 @@ import {
   type InterchangeHeader,
 } from '@latch/edi-core';
 import type { CanonicalRecord, Tender, TenderResponse } from '@latch/canonical';
-import { ok, err, getPath, type Result, type Issue } from '@latch/shared';
-import type { MapArtifact } from './map';
+import { ok, err, getPath, stableStringify, type Result, type Issue } from '@latch/shared';
+import type { ChildRule, MapArtifact } from './map';
+import { toCanonical } from './engine';
 
 /** Standard 004010 delimiters; overridable per partner. */
 export const DEFAULT_DELIMITERS: EdiDelimiters = { element: '*', segment: '~', subElement: '>' };
@@ -49,34 +55,16 @@ function invertTable(table: Record<string, string>): Record<string, string> {
   return out;
 }
 
+type InvertedCache = Map<Record<string, string>, Record<string, string>>;
+
 /**
- * Build an EDI interchange from a canonical record using `map` in reverse. Never throws;
- * returns a structured error if the map needs unsupported (loop/group) outbound handling.
+ * Materialize a set of FLAT rules against a source object into EDI segments. Used for the
+ * top-level flat rules (source = the record) and for each loop item / group window (source =
+ * the item/group object; child paths are relative to it, child addresses relative to the
+ * window). Emits each tag's occurrences 0..max CONTIGUOUSLY so re-parse keeps occurrence
+ * indexing stable (occurrence 1 must not slide to 0 when occurrence 0 is empty).
  */
-export function buildOutbound(
-  map: MapArtifact,
-  record: CanonicalRecord,
-  envelope: OutboundEnvelope,
-): Result<EdiInterchange> {
-  if (record.kind !== map.recordKind) {
-    return err({
-      code: 'VALIDATION',
-      message: `Record kind "${record.kind}" does not match the map's recordKind "${map.recordKind}"`,
-    });
-  }
-  if (map.rules.some((r) => r.kind === 'loop' || r.kind === 'group')) {
-    return err({
-      code: 'UNSUPPORTED',
-      message: `Outbound generation for ${map.transactionSet} with repeating loops/groups is not supported yet (flat sets only).`,
-    });
-  }
-
-  const obj = record as unknown as Record<string, unknown>;
-  const warnings: Issue[] = [];
-  const invertedCache = new Map<Record<string, string>, Record<string, string>>();
-
-  // Pass 1: collect every populated value, keyed tag → occurrence → element position. Only
-  // populated values are recorded; an unreferenced/empty (tag, occurrence) is never created.
+function materializeFlat(rules: ChildRule[], obj: Record<string, unknown>, inverted: InvertedCache, warnings: Issue[]): EdiSegment[] {
   const tagOrder: string[] = [];
   const cells = new Map<string, Map<number, Map<number, string>>>();
   const put = (tag: string, occurrence: number, position: number, value: string): void => {
@@ -94,7 +82,7 @@ export function buildOutbound(
     posMap.set(position, value);
   };
 
-  for (const rule of map.rules) {
+  for (const rule of rules) {
     switch (rule.kind) {
       case 'const':
         continue; // canonical-only; never serialized
@@ -108,12 +96,12 @@ export function buildOutbound(
       case 'codemap': {
         const value = getPath(obj, rule.path);
         if (value === undefined || value === null || typeof value === 'object') continue;
-        let inverted = invertedCache.get(rule.table);
-        if (!inverted) {
-          inverted = invertTable(rule.table);
-          invertedCache.set(rule.table, inverted);
+        let table = inverted.get(rule.table);
+        if (!table) {
+          table = invertTable(rule.table);
+          inverted.set(rule.table, table);
         }
-        const code = inverted[String(value)];
+        const code = table[String(value)];
         if (code === undefined) {
           warnings.push({ code: 'TRANSFORM', message: `No outbound code for ${rule.path}="${String(value)}"`, path: rule.path });
           continue;
@@ -133,10 +121,6 @@ export function buildOutbound(
     }
   }
 
-  // Pass 2: emit each tag's occurrences 0..max CONTIGUOUSLY, filling gaps with empty
-  // segments. This preserves occurrence indexing on re-parse — if occurrence 1 were emitted
-  // without occurrence 0, the inbound parser would read it as occurrence 0 and shift the
-  // data, breaking the round-trip invariant.
   const segments: EdiSegment[] = [];
   for (const tag of tagOrder) {
     const occMap = cells.get(tag)!;
@@ -148,13 +132,129 @@ export function buildOutbound(
       segments.push(seg);
     }
   }
+  return segments;
+}
+
+/** Ensure a window opens with its anchor segment (re-parse slices iterations by anchor). */
+function ensureAnchorLeads(segs: EdiSegment[], anchor: string): EdiSegment {
+  const idx = segs.findIndex((s) => s.tag === anchor);
+  if (idx === -1) {
+    const seg: EdiSegment = { tag: anchor, elements: [] };
+    segs.unshift(seg);
+    return seg;
+  }
+  if (idx > 0) {
+    const [a] = segs.splice(idx, 1);
+    segs.unshift(a!);
+  }
+  return segs[0]!;
+}
+
+/** A shallow copy of a canonical record with its `raw` removed — what we compare on round-trip
+ *  (an authored outbound record has no `raw`; the parsed-back one carries the snapshot). */
+function withoutRaw(rec: unknown): unknown {
+  if (!rec || typeof rec !== 'object') return rec;
+  const { raw: _raw, ...rest } = rec as { raw?: unknown } & Record<string, unknown>;
+  void _raw;
+  return rest;
+}
+
+/**
+ * Build an EDI interchange from a canonical record using `map` in reverse. Never throws.
+ * Self-verifies: the generated document is parsed back and must reproduce the intended
+ * canonical, else a structured error is returned (never a silently-wrong document).
+ */
+export function buildOutbound(
+  map: MapArtifact,
+  record: CanonicalRecord,
+  envelope: OutboundEnvelope,
+): Result<EdiInterchange> {
+  if (record.kind !== map.recordKind) {
+    return err({
+      code: 'VALIDATION',
+      message: `Record kind "${record.kind}" does not match the map's recordKind "${map.recordKind}"`,
+    });
+  }
+
+  const obj = record as unknown as Record<string, unknown>;
+  const warnings: Issue[] = [];
+  const inverted: InvertedCache = new Map();
+
+  // Emit segments in the order the rules appear in the map — X12 segment order is strictly
+  // defined (header flats → detail loops → summary flats like CTT), and the map author lays
+  // the rules out in that order. Materialize each run of CONTIGUOUS flat rules as it is
+  // reached, flushing before each loop/group, so a summary flat declared after the detail
+  // loops is emitted after them (not hoisted to the top, which would be invalid EDI).
+  const body: EdiSegment[] = [];
+  let pendingFlat: ChildRule[] = [];
+  const flushFlat = (): void => {
+    if (pendingFlat.length > 0) {
+      body.push(...materializeFlat(pendingFlat, obj, inverted, warnings));
+      pendingFlat = [];
+    }
+  };
+
+  for (const rule of map.rules) {
+    if (rule.kind === 'loop') {
+      flushFlat();
+      const arr = getPath(obj, rule.path);
+      if (!Array.isArray(arr)) continue;
+      for (const item of arr) {
+        if (!item || typeof item !== 'object') continue;
+        const window = materializeFlat(rule.fields, item as Record<string, unknown>, inverted, warnings);
+        ensureAnchorLeads(window, rule.anchor);
+        body.push(...window);
+      }
+    } else if (rule.kind === 'group') {
+      flushFlat();
+      const g = getPath(obj, rule.path);
+      if (!g || typeof g !== 'object') continue;
+      const window = materializeFlat(rule.fields, g as Record<string, unknown>, inverted, warnings);
+      const anchorSeg = ensureAnchorLeads(window, rule.anchor);
+      // Stamp the qualifier so re-parse selects this window for the group.
+      setElement(anchorSeg, rule.match.element, rule.match.equals);
+      body.push(...window);
+    } else {
+      pendingFlat.push(rule);
+    }
+  }
+  flushFlat();
 
   const interchange = buildInterchange({
     delimiters: envelope.delimiters ?? DEFAULT_DELIMITERS,
     interchange: envelope.interchange,
     group: envelope.group,
-    transactions: [{ code: map.transactionSet, controlNumber: envelope.stControlNumber, segments }],
+    transactions: [{ code: map.transactionSet, controlNumber: envelope.stControlNumber, segments: body }],
   });
+
+  // Self-verify: the document we just built must parse back to the canonical we were given.
+  // This is what lets outbound be trusted without a snapshot — a structure outbound can't
+  // faithfully express is rejected, never emitted wrong.
+  const back = toCanonical(map, interchange);
+  if (!back.ok) {
+    // Preserve the underlying parse/transform errors — they say exactly why the generated
+    // document is invalid, which is what a map author needs to fix it.
+    return err([
+      {
+        code: 'UNSUPPORTED',
+        message: `Outbound generation for ${map.transactionSet} produced a document that does not parse back to canonical: ${back.errors.map((e) => e.message).join('; ')}`,
+      },
+      ...back.errors,
+    ]);
+  }
+  if (!back.value[0]) {
+    return err({
+      code: 'UNSUPPORTED',
+      message: `Outbound generation for ${map.transactionSet} produced a document that parsed to zero canonical records.`,
+    });
+  }
+  if (stableStringify(withoutRaw(back.value[0])) !== stableStringify(withoutRaw(record))) {
+    return err({
+      code: 'UNSUPPORTED',
+      message: `Outbound generation for ${map.transactionSet} could not produce a document that round-trips to the intended canonical (map structure is not outbound-expressible — e.g. derived fields without mapped sources, or colliding loop/flat tags).`,
+    });
+  }
+
   return ok(interchange, warnings);
 }
 

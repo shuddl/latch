@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createEdiCore, readElement } from '@latch/edi-core';
 import { tenderSchema, type CanonicalRecord, type TenderResponse } from '@latch/canonical';
 import {
@@ -8,11 +10,22 @@ import {
   withCompiledHash,
   MAP_990_TENDERRESPONSE,
   MAP_204_TENDER,
+  MAP_211_BOL,
   type MapArtifact,
   type OutboundEnvelope,
 } from './index';
 
 const edi = createEdiCore();
+
+const fixture = (rel: string) => readFileSync(fileURLToPath(new URL(`../../../fixtures/${rel}`, import.meta.url)), 'utf8').trim();
+
+/** Drop the lossless `raw` snapshot so we compare semantic canonical only. */
+function stripRaw(rec: unknown): unknown {
+  if (!rec || typeof rec !== 'object') return rec;
+  const { raw: _raw, ...rest } = rec as { raw?: unknown } & Record<string, unknown>;
+  void _raw;
+  return rest;
+}
 
 const ENV: OutboundEnvelope = {
   stControlNumber: '0001',
@@ -79,16 +92,6 @@ describe('buildOutbound — canonical → EDI (990 TenderResponse)', () => {
     expect(wire).toContain('K1*NO CAPACITY~'); // reason emitted
   });
 
-  it('refuses outbound generation for a map with repeating loops/groups (v1 limit)', () => {
-    const tender = tenderSchema.parse({
-      kind: 'Tender', canonicalVersion: '1', shipmentId: 'X', purpose: 'original', stops: [], freight: [], references: [],
-    });
-    const out = buildOutbound(MAP_204_TENDER, tender, ENV);
-    expect(out.ok).toBe(false);
-    if (out.ok) return;
-    expect(out.errors[0]?.code).toBe('UNSUPPORTED');
-  });
-
   it('rejects a record whose kind does not match the map', () => {
     const wrong = { kind: 'Tender', canonicalVersion: '1', shipmentId: 'X', purpose: 'original', stops: [], freight: [], references: [] } as unknown as CanonicalRecord;
     const out = buildOutbound(MAP_990_TENDERRESPONSE, wrong, ENV);
@@ -99,28 +102,131 @@ describe('buildOutbound — canonical → EDI (990 TenderResponse)', () => {
 });
 
 describe('buildOutbound — occurrence indexing is preserved (no segment-shift on round-trip)', () => {
-  // A synthetic flat map referencing REF#0 and REF#1; the canonical populates only the
-  // occurrence-1 field. The builder must still emit REF#0 (empty) so re-parsing keeps
-  // occurrence 1 at occurrence 1.
+  // A flat map whose OPTIONAL occurrence-0 field (reasonCode ← REF#0) is absent while the
+  // occurrence-1 field (statusDescription ← REF#1) is populated. The builder must still emit
+  // REF#0 (empty) so re-parsing keeps occurrence 1 at occurrence 1 — and self-verify proves it.
   const refMap: MapArtifact = withCompiledHash({
     mapVersion: 'test-ref', direction: 'outbound', transactionSet: '999', x12Version: '004010',
     canonicalVersion: '1', recordKind: 'StatusEvent',
     rules: [
-      { kind: 'element', path: 'a', source: { tag: 'REF', occurrence: 0, element: 2 } },
-      { kind: 'element', path: 'b', source: { tag: 'REF', occurrence: 1, element: 2 } },
+      { kind: 'const', path: 'kind', value: 'StatusEvent' },
+      { kind: 'const', path: 'canonicalVersion', value: '1' },
+      { kind: 'const', path: 'shipmentId', value: 'S1' },
+      { kind: 'const', path: 'statusCode', value: 'X1' },
+      { kind: 'const', path: 'occurredAt', value: '2026-06-24T09:00:00' },
+      { kind: 'element', path: 'reasonCode', source: { tag: 'REF', occurrence: 0, element: 2 } },
+      { kind: 'element', path: 'statusDescription', source: { tag: 'REF', occurrence: 1, element: 2 } },
     ],
   });
 
   it('emits a contiguous occurrence-0 placeholder so occurrence-1 does not shift', () => {
-    const rec = { kind: 'StatusEvent', a: '', b: 'SECOND' } as unknown as CanonicalRecord;
+    const rec = {
+      kind: 'StatusEvent', canonicalVersion: '1', shipmentId: 'S1', statusCode: 'X1',
+      occurredAt: '2026-06-24T09:00:00', statusDescription: 'SECOND', raw: {},
+    } as unknown as CanonicalRecord;
     const out = buildOutbound(refMap, rec, ENV);
-    expect(out.ok).toBe(true);
+    expect(out.ok).toBe(true); // self-verify: occurrence 1 round-trips because occ 0 is emitted empty
     if (!out.ok) return;
     // Two REF segments emitted; occurrence 1 still carries 'SECOND' (no shift to occ 0).
     const refs = out.value.segments.filter((s) => s.tag === 'REF');
     expect(refs.length).toBe(2);
     expect(readElement(out.value, { tag: 'REF', occurrence: 1, element: 2 })).toBe('SECOND');
     expect(readElement(out.value, { tag: 'REF', occurrence: 0, element: 2 })).toBeUndefined();
+  });
+});
+
+describe('buildOutbound — non-flat sets (loops + groups), self-verified', () => {
+  // The round-trip proof for sets WITH loops/groups: inbound a real fixture → canonical →
+  // outbound → re-parse → the SAME semantic canonical. buildOutbound self-verifies, so a
+  // success means the generated document provably reproduces the intended canonical.
+  function assertRoundTrips(map: MapArtifact, raw: string) {
+    const parsed = edi.parse(raw);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const inbound = toCanonical(map, parsed.value);
+    expect(inbound.ok).toBe(true);
+    if (!inbound.ok || !inbound.value[0]) return;
+    const record = inbound.value[0];
+
+    const out = buildOutbound(map, record, ENV);
+    expect(out.ok).toBe(true); // self-verify passed ⇒ the generated doc is faithful
+    if (!out.ok) return;
+
+    // Independently re-derive the canonical from the generated wire and compare.
+    const reparsed = edi.parse(edi.serialize(out.value));
+    expect(reparsed.ok).toBe(true);
+    if (!reparsed.ok) return;
+    const back = toCanonical(map, reparsed.value);
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(stripRaw(back.value[0])).toEqual(stripRaw(record));
+  }
+
+  it('round-trips a 204 Tender (stops/freight/references loops)', () => {
+    assertRoundTrips(MAP_204_TENDER, fixture('204/sample-204-001.edi'));
+  });
+
+  it('round-trips a 211 BOL (N1 groups + AT detail loop)', () => {
+    assertRoundTrips(MAP_211_BOL, fixture('211/sample-211-001.edi'));
+  });
+
+  it('preserves X12 segment order: a flat rule declared AFTER the loops is emitted after them', () => {
+    // A summary/trailing flat segment (here B2, declared last) must not be hoisted above the
+    // detail loops — that would be structurally-invalid X12. The builder emits segments in
+    // map-rule order, so B2 lands after the L11 detail loop.
+    const orderMap: MapArtifact = withCompiledHash({
+      mapVersion: 'test-order', direction: 'outbound', transactionSet: '997', x12Version: '004010',
+      canonicalVersion: '1', recordKind: 'Tender',
+      rules: [
+        { kind: 'const', path: 'kind', value: 'Tender' },
+        { kind: 'const', path: 'canonicalVersion', value: '1' },
+        { kind: 'const', path: 'purpose', value: 'original' },
+        { kind: 'loop', path: 'stops', anchor: 'S5', fields: [] },
+        { kind: 'loop', path: 'freight', anchor: 'AT8', fields: [] },
+        {
+          kind: 'loop', path: 'references', anchor: 'L11',
+          fields: [
+            { kind: 'element', path: 'value', source: { tag: 'L11', occurrence: 0, element: 1 } },
+            { kind: 'element', path: 'qualifier', source: { tag: 'L11', occurrence: 0, element: 2 } },
+          ],
+        },
+        { kind: 'element', path: 'shipmentId', source: { tag: 'B2', occurrence: 0, element: 4 } }, // FLAT, after loops
+      ],
+    });
+    const rec = {
+      kind: 'Tender', canonicalVersion: '1', shipmentId: 'SHIP1', purpose: 'original',
+      stops: [], freight: [], references: [{ value: 'V1', qualifier: 'BM' }], raw: {},
+    } as unknown as CanonicalRecord;
+
+    const out = buildOutbound(orderMap, rec, ENV);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    const tags = out.value.segments.filter((s) => s.tag === 'L11' || s.tag === 'B2').map((s) => s.tag);
+    expect(tags).toEqual(['L11', 'B2']); // detail loop first, summary flat after — not hoisted
+  });
+
+  it('returns UNSUPPORTED when a derived field cannot be reproduced (self-verify catches it)', () => {
+    // A map whose `occurredAt` is derived (forward-only) with no element rules for its source:
+    // buildOutbound can't emit those bytes, so the generated doc won't carry occurredAt and
+    // self-verification fails closed rather than emitting a lossy document.
+    const derivedMap: MapArtifact = withCompiledHash({
+      mapVersion: 'test-derived', direction: 'outbound', transactionSet: '998', x12Version: '004010',
+      canonicalVersion: '1', recordKind: 'StatusEvent',
+      rules: [
+        { kind: 'const', path: 'kind', value: 'StatusEvent' },
+        { kind: 'const', path: 'canonicalVersion', value: '1' },
+        { kind: 'element', path: 'shipmentId', source: { tag: 'B10', occurrence: 0, element: 1 } },
+        { kind: 'element', path: 'statusCode', source: { tag: 'AT7', occurrence: 0, element: 1 } },
+        { kind: 'derived', path: 'occurredAt', inputs: [{ tag: 'AT7', occurrence: 0, element: 5 }, { tag: 'AT7', occurrence: 0, element: 6 }], transform: 'dateTimeToIso' },
+      ],
+    });
+    const rec = {
+      kind: 'StatusEvent', canonicalVersion: '1', shipmentId: 'S1', statusCode: 'X1', occurredAt: '2026-06-24T09:00:00', raw: {},
+    } as unknown as CanonicalRecord;
+    const out = buildOutbound(derivedMap, rec, ENV);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.errors[0]?.code).toBe('UNSUPPORTED');
   });
 });
 
