@@ -3,17 +3,18 @@
 // no fourth step.
 
 import { useEffect, useState } from 'react';
-import { api, ApiError } from './api';
-import type { CertificationReportData, Connection } from './types';
+import { api, ApiError, type HandshakePartyInput } from './api';
+import type { CertificationReportData, Connection, HandshakeOutcome } from './types';
 import { SAMPLE_214 } from './samples';
 import { CertProgress } from './components/CertProgress';
 import { CertificationReport } from './components/CertificationReport';
 import { ConnectionDetail } from './components/ConnectionDetail';
+import { HandshakeManifest } from './components/HandshakeManifest';
 import './App.css';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-type View = 'dashboard' | 'onboard';
+type View = 'dashboard' | 'onboard' | 'connect';
 type Phase = 'partner' | 'drop' | 'certifying' | 'report';
 
 export function App() {
@@ -32,7 +33,9 @@ export function App() {
       {detailId ? (
         <ConnectionDetail connectionId={detailId} onBack={() => setDetailId(null)} />
       ) : view === 'dashboard' ? (
-        <Dashboard onNew={() => setView('onboard')} onOpen={setDetailId} />
+        <Dashboard onNew={() => setView('onboard')} onOpen={setDetailId} onConnect={() => setView('connect')} />
+      ) : view === 'connect' ? (
+        <ConnectView onDone={() => setView('dashboard')} />
       ) : (
         <Onboard onDone={() => setView('dashboard')} />
       )}
@@ -40,7 +43,15 @@ export function App() {
   );
 }
 
-function Dashboard({ onNew, onOpen }: { onNew: () => void; onOpen: (id: string) => void }) {
+function Dashboard({
+  onNew,
+  onOpen,
+  onConnect,
+}: {
+  onNew: () => void;
+  onOpen: (id: string) => void;
+  onConnect: () => void;
+}) {
   const [connections, setConnections] = useState<Connection[] | null>(null);
 
   useEffect(() => {
@@ -61,9 +72,14 @@ function Dashboard({ onNew, onOpen }: { onNew: () => void; onOpen: (id: string) 
           <h1>Connections</h1>
           <p className="muted">Stand up a trading-partner connection and prove it’s right — same day.</p>
         </div>
-        <button className="btn btn-primary" onClick={onNew}>
-          Add connection
-        </button>
+        <div className="head-actions">
+          <button className="btn" onClick={onConnect}>
+            Connect via Latch
+          </button>
+          <button className="btn btn-primary" onClick={onNew}>
+            Add connection
+          </button>
+        </div>
       </div>
 
       {connections === null ? (
@@ -229,5 +245,142 @@ function Onboard({ onDone }: { onDone: () => void }) {
         <CertificationReport data={report} onGoLive={handleGoLive} goLiveState={goLive} />
       )}
     </main>
+  );
+}
+
+// "Connect via Latch" (docs/05 / M6.3): run a bilateral handshake between two parties' certified
+// maps and render the co-signed manifest — provable correctness *between* organizations.
+function ConnectView({ onDone }: { onDone: () => void }) {
+  const [initiator, setInitiator] = useState({ org: 'acme', mapId: '', set: '214' });
+  const [responder, setResponder] = useState({ org: 'beta', mapId: '', set: '214' });
+  const [sample, setSample] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<HandshakeOutcome | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const ready = initiator.mapId.trim() && responder.mapId.trim() && sample.trim();
+
+  async function run() {
+    setError(null);
+    setBusy(true);
+    setOutcome(null);
+    try {
+      const cases = [{ name: 'sample-1', input: sample.trim() }];
+      const mkParty = (p: typeof initiator): HandshakePartyInput => ({
+        org: p.org.trim(),
+        mapId: p.mapId.trim(),
+        set: p.set.trim(),
+        cases,
+      });
+      const res = await api.runHandshake({ initiator: mkParty(initiator), responder: mkParty(responder) });
+      setOutcome(res);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Handshake could not run. Check the API is deployed with DO bindings.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="container">
+      <div className="page-head">
+        <div>
+          <h1>{outcome ? 'Co-certification' : 'Connect via Latch'}</h1>
+          {!outcome && (
+            <p className="muted">
+              Two partners negotiate and co-certify a connection — ending in a signed manifest, no human round-trip.
+            </p>
+          )}
+        </div>
+        <button className="linklike" onClick={onDone}>
+          ← Connections
+        </button>
+      </div>
+
+      {error && <div className="error-banner">{error}</div>}
+
+      {!outcome ? (
+        <div className="wizard">
+          <div className="connect-parties">
+            <PartyForm title="Initiator" value={initiator} onChange={setInitiator} />
+            <PartyForm title="Responder" value={responder} onChange={setResponder} />
+          </div>
+          <div className="field">
+            <label htmlFor="hs-sample">Golden sample to co-certify</label>
+            <textarea
+              id="hs-sample"
+              className="textarea"
+              placeholder="Paste a sample EDI file both sides will co-certify…"
+              value={sample}
+              onChange={(e) => setSample(e.target.value)}
+            />
+            <button className="linklike" type="button" onClick={() => setSample(SAMPLE_214)}>
+              Use a sample 214
+            </button>
+          </div>
+          <div className="wizard-actions">
+            <button className="btn btn-primary" onClick={run} disabled={!ready || busy}>
+              {busy ? 'Handshaking…' : 'Run handshake'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <HandshakeManifest outcome={outcome} initiatorOrg={initiator.org} responderOrg={responder.org} />
+          <div className="wizard-actions">
+            <button className="btn" onClick={() => setOutcome(null)}>
+              Run another
+            </button>
+          </div>
+        </>
+      )}
+    </main>
+  );
+}
+
+function PartyForm({
+  title,
+  value,
+  onChange,
+}: {
+  title: string;
+  value: { org: string; mapId: string; set: string };
+  onChange: (v: { org: string; mapId: string; set: string }) => void;
+}) {
+  // PartyForm renders twice on the page, so ids must be unique per party for label/input
+  // association (WCAG AA — the design language requires it).
+  const p = title.toLowerCase();
+  return (
+    <div className="card connect-party">
+      <span className="connect-party-title">{title}</span>
+      <div className="field">
+        <label htmlFor={`${p}-org`}>Org</label>
+        <input
+          id={`${p}-org`}
+          className="input"
+          value={value.org}
+          onChange={(e) => onChange({ ...value, org: e.target.value })}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor={`${p}-mapId`}>Map ID</label>
+        <input
+          id={`${p}-mapId`}
+          className="input"
+          placeholder="map_…"
+          value={value.mapId}
+          onChange={(e) => onChange({ ...value, mapId: e.target.value })}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor={`${p}-set`}>Transaction set</label>
+        <input
+          id={`${p}-set`}
+          className="input"
+          value={value.set}
+          onChange={(e) => onChange({ ...value, set: e.target.value })}
+        />
+      </div>
+    </div>
   );
 }

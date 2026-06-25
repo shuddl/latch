@@ -1,0 +1,302 @@
+/* Co-certification manifest (docs/09). Same monochrome, proof-led language as the cert
+   report: color only signals proof (green = co-certified), paired with icon + label. */
+
+.hs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+  margin-top: var(--s-5);
+}
+
+/* Verdict header */
+.hs-verdict {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s-4);
+  align-items: center;
+}
+.hs-badge {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: var(--t-xl);
+  color: #fff;
+  background: var(--proven);
+}
+.hs.is-failed .hs-badge {
+  background: var(--failed);
+}
+.hs-title {
+  font-size: var(--t-2xl);
+}
+.hs-sub {
+  margin: var(--s-1) 0 0;
+  max-width: 60ch;
+}
+
+/* The two parties */
+.hs-parties {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--s-4);
+}
+.hs-party {
+  padding: var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.hs-party-role {
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-500);
+}
+.hs-party-org {
+  font-size: var(--t-lg);
+}
+.hs-party-key {
+  font-size: var(--t-xs);
+}
+.hs-party-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-sm);
+  color: var(--ink-500);
+  margin-top: var(--s-1);
+}
+.hs-party-status[data-live='true'] {
+  color: var(--proven);
+}
+
+.hs-link {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 64px;
+}
+.hs-link-line {
+  flex: 1;
+  height: 2px;
+  background: var(--ink-200);
+}
+.hs.is-ok .hs-link-line {
+  background: var(--proven);
+}
+.hs-link-glyph {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--proven-soft);
+  color: var(--proven);
+  font-weight: 700;
+}
+.hs.is-failed .hs-link-glyph {
+  background: var(--failed-soft);
+  color: var(--failed);
+}
+
+/* Health dot reused from App.css; provide a fallback if loaded standalone. */
+.hs .health-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-300);
+  display: inline-block;
+}
+.hs .health-dot[data-live='true'] {
+  background: var(--proven);
+}
+
+/* Phase stepper */
+.hs-phases {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--s-2);
+}
+.hs-phase {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  text-align: center;
+  padding: var(--s-3) var(--s-2);
+  border: var(--border);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+}
+.hs-phase-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  background: var(--ink-100);
+  color: var(--ink-500);
+}
+.hs-phase[data-state='done'] .hs-phase-dot {
+  background: var(--proven);
+  color: #fff;
+}
+.hs-phase[data-state='failed'] .hs-phase-dot {
+  background: var(--failed);
+  color: #fff;
+}
+.hs-phase-label {
+  font-size: var(--t-xs);
+  color: var(--ink-700);
+}
+
+/* Manifest card */
+.hs-manifest {
+  padding: var(--s-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+.hs-manifest-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.panel-title {
+  font-size: var(--t-lg);
+  margin: 0;
+}
+.hs-chip {
+  font-size: var(--t-xs);
+  font-family: var(--font-mono);
+  color: var(--ink-500);
+  border: var(--border);
+  border-radius: 999px;
+  padding: 2px var(--s-3);
+}
+
+.hs-fields {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--s-3) var(--s-5);
+}
+.hs-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hs-field dt {
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-500);
+}
+.hs-field dd {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--ink-900);
+}
+
+.hs-cocert {
+  border: var(--border);
+  border-radius: var(--radius);
+  padding: var(--s-4);
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.hs-cocert-label {
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-500);
+}
+.hs-cocert-hash {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  word-break: break-all;
+  color: var(--ink-900);
+}
+.hs-cocert-note {
+  margin: 0;
+  font-size: var(--t-xs);
+}
+
+/* Signatures */
+.hs-sigs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--s-4);
+}
+.hs-sig {
+  border: var(--border);
+  border-radius: var(--radius);
+  padding: var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.hs-sig[data-present='true'] {
+  border-color: color-mix(in srgb, var(--proven) 35%, var(--ink-100));
+  background: color-mix(in srgb, var(--proven-soft) 50%, var(--paper-raised));
+}
+.hs-sig-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.hs-sig-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: var(--t-xs);
+  background: var(--ink-100);
+  color: var(--ink-500);
+}
+.hs-sig[data-present='true'] .hs-sig-check {
+  background: var(--proven);
+  color: #fff;
+}
+.hs-sig-label {
+  font-size: var(--t-sm);
+  font-weight: 550;
+}
+.hs-sig-who {
+  margin-left: auto;
+  font-size: var(--t-xs);
+}
+.hs-sig-value {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-700);
+  word-break: break-all;
+}
+
+@media (max-width: 720px) {
+  .hs-parties {
+    grid-template-columns: 1fr;
+  }
+  .hs-link {
+    transform: rotate(90deg);
+    margin: var(--s-2) auto;
+  }
+  .hs-phases {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .hs-fields,
+  .hs-sigs {
+    grid-template-columns: 1fr;
+  }
+}

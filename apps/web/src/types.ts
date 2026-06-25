@@ -72,6 +72,38 @@ export interface DriftEvent {
   resolvedAt?: number;
 }
 
+// ── Handshake (HSP, docs/05) — the bilateral co-certification proof ──────────────
+export interface HspParty {
+  latchOrg: string;
+  keyId: string;
+}
+
+export interface CertManifest {
+  hspVersion: string;
+  sessionId: string;
+  canonicalVersion: string;
+  parties: { initiator: HspParty; responder: HspParty };
+  mapDigests: { initiator: string; responder: string };
+  coCertResultHash: string;
+  flows: { initiatorSends: string[]; responderSends: string[] };
+  createdAt: number;
+}
+
+export interface SignedManifest {
+  manifest: CertManifest;
+  initiatorSig?: string;
+  responderSig?: string;
+}
+
+export interface HandshakeOutcome {
+  sessionId: string;
+  ok: boolean;
+  initiatorStatus: string;
+  responderStatus: string;
+  signedManifest: SignedManifest | null;
+  error?: string;
+}
+
 export type TransactionStatus = 'received' | 'transformed' | 'delivered' | 'ack_sent' | 'error';
 
 export interface Transaction {
