@@ -29,6 +29,10 @@ import {
 import { ingestInbound } from './ingest';
 import { transactionSetDef, SUPPORTED_TRANSACTION_SETS } from './transaction-sets';
 import { type RateLimiter, RATE_LIMIT_DEFAULT, RATE_WINDOW_SEC_DEFAULT } from './ratelimit';
+import { buildGoldenFlow } from './handshake-runtime';
+import { orchestrateBilateral } from './handshake/orchestrator';
+import { DurableObjectPeer } from './handshake/do-runtime';
+import type { HostSeed } from './handshake/host';
 import { z } from 'zod';
 
 const ORG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -517,6 +521,105 @@ export function createApp(
       throw new LatchError('CONFLICT', `Drift event is already resolved (${ev.status}).`);
     }
     return c.json(await store.updateDriftEvent(tenantId, ev.id, { status: 'dismissed', resolvedAt: Date.now() }));
+  });
+
+  // ── Bilateral handshake (HSP, docs/05 / M6) ────────────────────────────────
+  // Drive two HandshakeDOs through HELLO→…→ATTEST→ACTIVATE to a co-signed manifest. Each
+  // party references a registered, certified map and the golden EDI samples it will send
+  // (the product's own input — partner samples). The manifest is the cryptographic proof
+  // that replaces the human cert round-trip; it lives in the initiator DO (GET below).
+  const handshakePartyInput = z.object({
+    org: z.string().regex(ORG_RE, 'org must be a slug'),
+    tenantId: z.string().regex(ORG_RE).optional(),
+    mapId: boundedText(256, 'mapId'),
+    set: boundedText(16, 'transaction set'),
+    cases: z
+      .array(z.object({ name: boundedText(128, 'case name'), input: boundedText(LIMITS.maxSampleBytes, 'golden case input') }))
+      .min(1)
+      .max(LIMITS.maxSamples),
+  });
+  const handshakeBilateralInput = z.object({
+    sessionId: z
+      .string()
+      .regex(/^[a-zA-Z0-9_:-]{1,128}$/)
+      .optional(),
+    canonicalVersion: boundedText(16, 'canonical version').default('1'),
+    initiator: handshakePartyInput,
+    responder: handshakePartyInput,
+  });
+
+  app.post('/v1/handshake/bilateral', async (c) => {
+    if (!c.env.HANDSHAKE_DO) {
+      throw new LatchError('INTERNAL', 'Handshake runtime is only available on the Workers deployment.');
+    }
+    const store = c.get('store');
+    const defaultTenant = c.get('tenantId');
+    const body = await readJson(c, handshakeBilateralInput);
+
+    // Build each side's seed: load its certified map and compute its intended canonical for the
+    // sets it sends (buildGoldenFlow), so co-cert compares like-for-like.
+    const buildSeed = async (
+      role: 'initiator' | 'responder',
+      party: z.infer<typeof handshakePartyInput>,
+      peerSet: string,
+    ): Promise<{ seed: HostSeed; tenantId: string }> => {
+      const tenantId = party.tenantId ?? defaultTenant;
+      const map = await store.getMapArtifact(tenantId, party.mapId);
+      if (!map) throw new LatchError('NOT_FOUND', `Map ${party.mapId} not found for ${role}`);
+      const seed: HostSeed = {
+        role,
+        org: party.org,
+        keyId: `${party.org}-key`,
+        latchVersion: '1.0',
+        canonicalVersions: [body.canonicalVersion],
+        sets: [party.set],
+        connectivity: ['as2'],
+        sends: [party.set],
+        receives: [peerSet],
+        golden: { [party.set]: buildGoldenFlow(map, party.set, party.cases) },
+        mapDigest: map.compiledHash ?? `digest-${party.org}`,
+        commitments: {},
+      };
+      return { seed, tenantId };
+    };
+
+    const init = await buildSeed('initiator', body.initiator, body.responder.set);
+    const resp = await buildSeed('responder', body.responder, body.initiator.set);
+    const sessionId = body.sessionId ?? newId('handshake');
+
+    const ns = c.env.HANDSHAKE_DO;
+    const initPeer = new DurableObjectPeer(ns.get(ns.idFromName(`${sessionId}:initiator`)), {
+      tenantId: init.tenantId,
+      mapId: body.initiator.mapId,
+    });
+    const respPeer = new DurableObjectPeer(ns.get(ns.idFromName(`${sessionId}:responder`)), {
+      tenantId: resp.tenantId,
+      mapId: body.responder.mapId,
+    });
+
+    const out = await orchestrateBilateral(initPeer, respPeer, init.seed, resp.seed, sessionId);
+    return c.json(
+      {
+        sessionId,
+        ok: out.ok,
+        initiatorStatus: out.initiatorStatus,
+        responderStatus: out.responderStatus,
+        signedManifest: out.signedManifest,
+        ...(out.error ? { error: out.error } : {}),
+      },
+      out.ok ? 200 : 422,
+    );
+  });
+
+  app.get('/v1/handshake/:sessionId', async (c) => {
+    if (!c.env.HANDSHAKE_DO) {
+      throw new LatchError('INTERNAL', 'Handshake runtime is only available on the Workers deployment.');
+    }
+    const sessionId = c.req.param('sessionId');
+    const ns = c.env.HANDSHAKE_DO;
+    const res = await ns.get(ns.idFromName(`${sessionId}:initiator`)).fetch('https://handshake.internal/state');
+    if (!res.ok) throw new LatchError('NOT_FOUND', 'No such handshake session');
+    return c.json((await res.json()) as Record<string, unknown>);
   });
 
   return app;
