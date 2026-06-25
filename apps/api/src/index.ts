@@ -9,6 +9,7 @@ import { ingestInbound } from './ingest';
 import { createAnthropicClient } from '@latch/shared';
 import { HandshakeHost } from './handshake/host';
 import { engineFactoryForDO, handleHostRequest } from './handshake/do-runtime';
+import { ControlSequencer } from './connection/sequencer';
 import type { Env } from './env';
 
 const app = createApp(
@@ -62,13 +63,24 @@ export default {
   },
 };
 
+// Per-connection state (task 2.3): atomic outbound control-number sequencing. A DO is
+// single-threaded per connection, so control numbers are issued without races even under
+// concurrent outbound sends; counters persist in DO storage and survive eviction.
+//   POST /allocate → the next interchange/group/ST control-number triple (advances)
+//   GET  /sequence → the last-issued triple (no advance)
 export class ConnectionDO {
   constructor(
     readonly state: DurableObjectState,
     readonly env: Env,
   ) {}
-  async fetch(): Promise<Response> {
-    return new Response('ConnectionDO: not yet implemented', { status: 501 });
+  async fetch(req: Request): Promise<Response> {
+    const seq = new ControlSequencer(this.state.storage);
+    const { pathname } = new URL(req.url);
+    const json = (body: unknown, status = 200): Response =>
+      new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    if (req.method === 'POST' && pathname.endsWith('/allocate')) return json(await seq.allocate());
+    if (req.method === 'GET' && pathname.endsWith('/sequence')) return json(await seq.peek());
+    return json({ error: 'no such connection route' }, 404);
   }
 }
 
