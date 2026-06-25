@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ControlSequencer, type SeqStorage } from './sequencer';
+import { ControlSequencer, type SeqStorage, type SeqTransaction } from './sequencer';
 
-/** A faithful stand-in for DurableObjectStorage: a plain Map. */
+/** A faithful stand-in for DurableObjectStorage: a plain Map with a (single-threaded) transaction. */
 class MemoryStorage implements SeqStorage {
   private readonly m = new Map<string, unknown>();
   async get<T>(key: string): Promise<T | undefined> {
@@ -9,6 +9,9 @@ class MemoryStorage implements SeqStorage {
   }
   async put<T>(key: string, value: T): Promise<void> {
     this.m.set(key, value);
+  }
+  async transaction<T>(closure: (txn: SeqTransaction) => Promise<T>): Promise<T> {
+    return closure(this);
   }
 }
 
