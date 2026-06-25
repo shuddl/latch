@@ -44,6 +44,9 @@ importers:
       '@latch/edi-core':
         specifier: workspace:*
         version: link:../../packages/edi-core
+      '@latch/handshake':
+        specifier: workspace:*
+        version: link:../../packages/handshake
       '@latch/heal':
         specifier: workspace:*
         version: link:../../packages/heal

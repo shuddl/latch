@@ -14,6 +14,7 @@
     "@latch/canonical": "workspace:*",
     "@latch/connectivity": "workspace:*",
     "@latch/edi-core": "workspace:*",
+    "@latch/handshake": "workspace:*",
     "@latch/heal": "workspace:*",
     "@latch/mapgen": "workspace:*",
     "@latch/pipeline": "workspace:*",
