@@ -81,16 +81,21 @@ export class Shim {
   }
 
   private sessionFor(sessionId: string): HspParticipant {
-    let p = this.sessions.get(sessionId);
-    if (!p) {
-      // Bound memory: a shim host is small, and stale/abandoned sessions must not accumulate.
-      if (this.sessions.size >= MAX_SESSIONS) {
-        const oldest = this.sessions.keys().next().value;
-        if (oldest !== undefined) this.sessions.delete(oldest);
-      }
-      p = new HspParticipant(this.cfg);
-      this.sessions.set(sessionId, p);
+    const existing = this.sessions.get(sessionId);
+    if (existing) {
+      // Touch: re-insert so `sessions` is LRU-ordered — an actively-exchanging session is never
+      // the eviction victim, only genuinely-idle ones are.
+      this.sessions.delete(sessionId);
+      this.sessions.set(sessionId, existing);
+      return existing;
     }
+    // Bound memory: a shim host is small, and stale/abandoned sessions must not accumulate.
+    if (this.sessions.size >= MAX_SESSIONS) {
+      const oldest = this.sessions.keys().next().value;
+      if (oldest !== undefined) this.sessions.delete(oldest);
+    }
+    const p = new HspParticipant(this.cfg);
+    this.sessions.set(sessionId, p);
     return p;
   }
 }
@@ -115,8 +120,16 @@ export function shimFetchHandler(shim: Shim): (req: Request) => Promise<Response
       } catch {
         return json({ error: 'body must be JSON { envelope }' }, 400);
       }
-      if (!body.envelope || typeof body.envelope !== 'object') return json({ error: 'missing envelope' }, 400);
-      return json({ envelopes: await shim.handle(body.envelope) });
+      const env = body.envelope;
+      // `typeof [] === 'object'`, so reject arrays explicitly; a missing/blank sessionId would
+      // otherwise key the session map under `undefined`.
+      if (!env || typeof env !== 'object' || Array.isArray(env)) {
+        return json({ error: 'missing or invalid envelope' }, 400);
+      }
+      if (typeof env.sessionId !== 'string' || env.sessionId === '') {
+        return json({ error: 'envelope must contain a valid sessionId' }, 400);
+      }
+      return json({ envelopes: await shim.handle(env) });
     }
     return json({ error: 'no such shim route' }, 404);
   };

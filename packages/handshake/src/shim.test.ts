@@ -111,7 +111,16 @@ describe('Latch-aware shim (M6.2) — non-adopting partner co-certifies over HTT
 
   it('rejects malformed shim requests', async () => {
     const handler = shimFetchHandler(await Shim.create(shimCfg(engine())));
+    const postJson = (body: unknown) =>
+      handler(new Request('https://partner.example/hsp', { method: 'POST', body: JSON.stringify(body) }));
+
     expect((await handler(new Request('https://partner.example/hsp', { method: 'POST', body: 'not json' }))).status).toBe(400);
     expect((await handler(new Request('https://partner.example/nope'))).status).toBe(404);
+    // An array is `typeof 'object'` but not a valid envelope.
+    expect((await postJson({ envelope: [] })).status).toBe(400);
+    expect((await postJson({ envelope: null })).status).toBe(400);
+    // A valid object missing a usable sessionId must not key the session map under undefined.
+    expect((await postJson({ envelope: { type: 'HELLO' } })).status).toBe(400);
+    expect((await postJson({ envelope: { type: 'HELLO', sessionId: '' } })).status).toBe(400);
   });
 });
