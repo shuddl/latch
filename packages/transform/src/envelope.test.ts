@@ -67,9 +67,12 @@ describe('deriveResponseEnvelope — the 204↔990 reply, self-identity by role-
     expect(back.value[0].shipmentId).toBe(tender.shipmentId);
   });
 
-  it('returns undefined when the source record carries no raw snapshot', () => {
+  it('returns undefined (never throws) for a missing snapshot or nullish inputs', () => {
     const noSnap = { kind: 'Tender', canonicalVersion: '1', shipmentId: 'X', purpose: 'original', stops: [], freight: [], references: [] } as unknown as Tender;
     expect(deriveResponseEnvelope(noSnap, CONTROLS)).toBeUndefined();
+    // Defensive: a null/undefined source or controls must fail closed, not crash.
+    expect(deriveResponseEnvelope(null as unknown as Tender, CONTROLS)).toBeUndefined();
+    expect(deriveResponseEnvelope(noSnap, null as unknown as ResponseControls)).toBeUndefined();
   });
 });
 

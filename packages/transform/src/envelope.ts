@@ -33,6 +33,7 @@ interface Snap {
 }
 
 function readSnap(rec: CanonicalRecord): Snap | undefined {
+  if (!rec || typeof rec !== 'object') return undefined;
   const raw = (rec as { raw?: Record<string, unknown> }).raw;
   const snap = raw?.[RAW_EDI_KEY];
   if (!snap || typeof snap !== 'object') return undefined;
@@ -40,14 +41,16 @@ function readSnap(rec: CanonicalRecord): Snap | undefined {
   return Array.isArray(s.interchange) && Array.isArray(s.group) ? s : undefined;
 }
 
-/** Trimmed element read (ISA ids are space-padded in the snapshot; `buildInterchange` re-pads). */
-const el = (arr: string[], i: number, fallback = ''): string => (arr[i] ?? fallback).trim();
+/** Trimmed element read (ISA ids are space-padded in the snapshot; `buildInterchange` re-pads).
+ *  `String(...)` guards against a corrupted snapshot whose element isn't a string. */
+const el = (arr: string[], i: number, fallback = ''): string => String(arr[i] ?? fallback).trim();
 
 /**
  * Build the envelope for a REPLY to `source`: we send as its receiver, addressed back to its
  * sender. Returns undefined if `source` carries no raw snapshot (can't learn the identities).
  */
 export function deriveResponseEnvelope(source: CanonicalRecord, controls: ResponseControls): OutboundEnvelope | undefined {
+  if (!source || !controls) return undefined; // never throw into a generation path
   const snap = readSnap(source);
   if (!snap) return undefined;
   const isa = snap.interchange;
