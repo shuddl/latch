@@ -180,12 +180,23 @@ export function buildOutbound(
   const warnings: Issue[] = [];
   const inverted: InvertedCache = new Map();
 
-  // Top-level flat rules first, then each loop's windows, then each group's window.
-  const flatRules = map.rules.filter((r): r is ChildRule => r.kind !== 'loop' && r.kind !== 'group');
-  const body: EdiSegment[] = materializeFlat(flatRules, obj, inverted, warnings);
+  // Emit segments in the order the rules appear in the map — X12 segment order is strictly
+  // defined (header flats → detail loops → summary flats like CTT), and the map author lays
+  // the rules out in that order. Materialize each run of CONTIGUOUS flat rules as it is
+  // reached, flushing before each loop/group, so a summary flat declared after the detail
+  // loops is emitted after them (not hoisted to the top, which would be invalid EDI).
+  const body: EdiSegment[] = [];
+  let pendingFlat: ChildRule[] = [];
+  const flushFlat = (): void => {
+    if (pendingFlat.length > 0) {
+      body.push(...materializeFlat(pendingFlat, obj, inverted, warnings));
+      pendingFlat = [];
+    }
+  };
 
   for (const rule of map.rules) {
     if (rule.kind === 'loop') {
+      flushFlat();
       const arr = getPath(obj, rule.path);
       if (!Array.isArray(arr)) continue;
       for (const item of arr) {
@@ -195,6 +206,7 @@ export function buildOutbound(
         body.push(...window);
       }
     } else if (rule.kind === 'group') {
+      flushFlat();
       const g = getPath(obj, rule.path);
       if (!g || typeof g !== 'object') continue;
       const window = materializeFlat(rule.fields, g as Record<string, unknown>, inverted, warnings);
@@ -202,8 +214,11 @@ export function buildOutbound(
       // Stamp the qualifier so re-parse selects this window for the group.
       setElement(anchorSeg, rule.match.element, rule.match.equals);
       body.push(...window);
+    } else {
+      pendingFlat.push(rule);
     }
   }
+  flushFlat();
 
   const interchange = buildInterchange({
     delimiters: envelope.delimiters ?? DEFAULT_DELIMITERS,
@@ -216,10 +231,21 @@ export function buildOutbound(
   // This is what lets outbound be trusted without a snapshot — a structure outbound can't
   // faithfully express is rejected, never emitted wrong.
   const back = toCanonical(map, interchange);
-  if (!back.ok || !back.value[0]) {
+  if (!back.ok) {
+    // Preserve the underlying parse/transform errors — they say exactly why the generated
+    // document is invalid, which is what a map author needs to fix it.
+    return err([
+      {
+        code: 'UNSUPPORTED',
+        message: `Outbound generation for ${map.transactionSet} produced a document that does not parse back to canonical: ${back.errors.map((e) => e.message).join('; ')}`,
+      },
+      ...back.errors,
+    ]);
+  }
+  if (!back.value[0]) {
     return err({
       code: 'UNSUPPORTED',
-      message: `Outbound generation for ${map.transactionSet} produced a document that does not parse back to canonical.`,
+      message: `Outbound generation for ${map.transactionSet} produced a document that parsed to zero canonical records.`,
     });
   }
   if (stableStringify(withoutRaw(back.value[0])) !== stableStringify(withoutRaw(record))) {

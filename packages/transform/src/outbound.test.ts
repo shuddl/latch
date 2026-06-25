@@ -170,6 +170,41 @@ describe('buildOutbound — non-flat sets (loops + groups), self-verified', () =
     assertRoundTrips(MAP_211_BOL, fixture('211/sample-211-001.edi'));
   });
 
+  it('preserves X12 segment order: a flat rule declared AFTER the loops is emitted after them', () => {
+    // A summary/trailing flat segment (here B2, declared last) must not be hoisted above the
+    // detail loops — that would be structurally-invalid X12. The builder emits segments in
+    // map-rule order, so B2 lands after the L11 detail loop.
+    const orderMap: MapArtifact = withCompiledHash({
+      mapVersion: 'test-order', direction: 'outbound', transactionSet: '997', x12Version: '004010',
+      canonicalVersion: '1', recordKind: 'Tender',
+      rules: [
+        { kind: 'const', path: 'kind', value: 'Tender' },
+        { kind: 'const', path: 'canonicalVersion', value: '1' },
+        { kind: 'const', path: 'purpose', value: 'original' },
+        { kind: 'loop', path: 'stops', anchor: 'S5', fields: [] },
+        { kind: 'loop', path: 'freight', anchor: 'AT8', fields: [] },
+        {
+          kind: 'loop', path: 'references', anchor: 'L11',
+          fields: [
+            { kind: 'element', path: 'value', source: { tag: 'L11', occurrence: 0, element: 1 } },
+            { kind: 'element', path: 'qualifier', source: { tag: 'L11', occurrence: 0, element: 2 } },
+          ],
+        },
+        { kind: 'element', path: 'shipmentId', source: { tag: 'B2', occurrence: 0, element: 4 } }, // FLAT, after loops
+      ],
+    });
+    const rec = {
+      kind: 'Tender', canonicalVersion: '1', shipmentId: 'SHIP1', purpose: 'original',
+      stops: [], freight: [], references: [{ value: 'V1', qualifier: 'BM' }], raw: {},
+    } as unknown as CanonicalRecord;
+
+    const out = buildOutbound(orderMap, rec, ENV);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    const tags = out.value.segments.filter((s) => s.tag === 'L11' || s.tag === 'B2').map((s) => s.tag);
+    expect(tags).toEqual(['L11', 'B2']); // detail loop first, summary flat after — not hoisted
+  });
+
   it('returns UNSUPPORTED when a derived field cannot be reproduced (self-verify catches it)', () => {
     // A map whose `occurredAt` is derived (forward-only) with no element rules for its source:
     // buildOutbound can't emit those bytes, so the generated doc won't carry occurredAt and
