@@ -34,7 +34,7 @@ Execute top-to-bottom. Each task is a vertical slice with an explicit acceptance
 ## Milestone 2 — Live traffic + acks
 - [~] **2.1** `packages/connectivity` — transport adapters behind one `ConnectivityAdapter` interface (poll → ingest → ack → send). **Built + tested with no creds:** `InMemoryAdapter` (deterministic test transport), `SftpAdapter` (full list/read/archive/send workflow over an injected `SftpClient`), `drainInbound` orchestration, and `ingestFromAdapter` wiring a drop straight through the deterministic pipeline (parse→transform→persist→997-back→drift) — proven end-to-end via tests. **Remaining (deploy-time):** the concrete SSH-over-`cloudflare:sockets` `SftpClient` and an AS2 (S/MIME + MDN) adapter — these need live endpoints/credentials to *run*, not to build; the adapter contract is the stable seam.
 - [x] **2.2** queue consumer (co-located in `apps/api`, not a separate `apps/pipeline`): parse → transform (pinned map) → persist canonical (R2) + `transactions` row → emit **997** (PR #4). **Debt (TD2):** 997 AK3/AK4 element-level error positions are coarse; fine-grained rejection detail deferred.
-- [~] **2.3** control-number sequencing + idempotency/duplicate detection. **Done** in the Store (`findTransactionByControls`, idempotency keys). **Skipped (debt):** the dedicated `ConnectionDO` (501 stub) for per-connection outbound sequencing — not needed until outbound/AS2 transport exists.
+- [x] **2.3** control-number sequencing + idempotency/duplicate detection. **Inbound dedup done** in the Store (`findTransactionByControls`, idempotency keys). **Outbound sequencing now done:** the `ConnectionDO` (was a 501 stub) hosts a `ControlSequencer` (`apps/api/connection/sequencer.ts`) that issues monotonic, X12-formatted interchange/group/ST control numbers per connection — atomic by construction (a DO is single-threaded per connection, so concurrent outbound sends never collide), eviction-safe (counters reload from DO storage each call), and wrapping at the 9-digit ceiling. Exposed as `POST /allocate` (advance) + `GET /sequence` (peek). Tested: monotonicity, peek-no-advance, eviction continuation, wrap. This is the sequencing half the outbound emit path needs; the actual wire-send remains deploy-gated (live AS2/SFTP adapter).
 - [x] **2.4** API + UI: `go-live` (guarded promote certified→production), transaction index/detail, **replay** (PR #4).
 - [~] **DoD-2:** parsed→transformed→persisted→997→visible→replay→dedup all proven via the HTTP path + tests; the SFTP *drop* path awaits 2.1.
 
@@ -89,7 +89,9 @@ Execute top-to-bottom. Each task is a vertical slice with an explicit acceptance
 
 Single source of truth for known, *intentional* debt. Each item is either scheduled to a
 milestone or accepted with a rationale. No hidden debt: the repo has zero TODO/FIXME/HACK
-markers; all stubs are explicit (501 DOs, empty `connectivity`/`handshake` packages).
+markers. Both Durable Objects are now implemented (`HandshakeDO` hosts the HSP participant;
+`ConnectionDO` hosts the outbound control-number sequencer) — no 501 stubs remain; the
+`connectivity` package's concrete SSH/AS2 clients are the only remaining deploy-gated seams.
 
 **Blockers before production GA**
 - **OP-1 — Real companion guides + sample EDI** (design partner's actual files). Until then goldens are anonymized synthetic. External, not a code task. → before M1 "real-guide" DoD.
