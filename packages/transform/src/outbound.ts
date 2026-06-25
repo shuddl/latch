@@ -57,6 +57,17 @@ function invertTable(table: Record<string, string>): Record<string, string> {
 
 type InvertedCache = Map<Record<string, string>, Record<string, string>>;
 
+/** Inverse of `dateTimeToIso` (engine): split an ISO value back into EDI date (YYYYMMDD) and
+ *  time (HHMMSS) source elements. Returns undefined for an ISO this builtin can't have produced
+ *  (so outbound fails closed via self-verify rather than emitting a malformed date). */
+function reverseDateTimeToIso(iso: string): { date: string; time: string | undefined } | undefined {
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (dateOnly) return { date: `${dateOnly[1]}${dateOnly[2]}${dateOnly[3]}`, time: undefined };
+  const dt = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/.exec(iso);
+  if (dt) return { date: `${dt[1]}${dt[2]}${dt[3]}`, time: `${dt[4]}${dt[5]}${dt[6]}` };
+  return undefined;
+}
+
 /**
  * Materialize a set of FLAT rules against a source object into EDI segments. Used for the
  * top-level flat rules (source = the record) and for each loop item / group window (source =
@@ -109,13 +120,32 @@ function materializeFlat(rules: ChildRule[], obj: Record<string, unknown>, inver
         put(rule.source.tag, rule.source.occurrence, rule.source.element, code);
         continue;
       }
-      case 'derived':
+      case 'derived': {
+        const value = getPath(obj, rule.path);
+        // An absent/empty optional derived field has nothing to emit — skip silently, exactly
+        // as `element`/`codemap` do. Only a PRESENT but non-reversible value warrants a warning.
+        if (value === undefined || value === null || value === '') continue;
+        // Reverse the known builtins so derived fields can be authored outbound. For
+        // `dateTimeToIso` we split the canonical ISO back into its source date/time elements;
+        // self-verification confirms the re-derived value matches, so a malformed ISO simply
+        // won't round-trip and fails closed.
+        if (rule.transform === 'dateTimeToIso' && typeof value === 'string') {
+          const split = reverseDateTimeToIso(value);
+          if (split) {
+            const dateAddr = rule.inputs[0];
+            const timeAddr = rule.inputs[1];
+            if (dateAddr) put(dateAddr.tag, dateAddr.occurrence, dateAddr.element, split.date);
+            if (split.time !== undefined && timeAddr) put(timeAddr.tag, timeAddr.occurrence, timeAddr.element, split.time);
+            continue;
+          }
+        }
         warnings.push({
           code: 'TRANSFORM',
-          message: `Derived field ${rule.path} is forward-only and cannot be generated outbound; map its source elements explicitly if needed`,
+          message: `Derived field ${rule.path} could not be reversed for outbound; map its source elements explicitly if needed`,
           path: rule.path,
         });
         continue;
+      }
       default:
         continue;
     }

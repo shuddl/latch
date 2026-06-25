@@ -11,6 +11,7 @@ import {
   MAP_990_TENDERRESPONSE,
   MAP_204_TENDER,
   MAP_211_BOL,
+  MAP_214_STATUSEVENT,
   type MapArtifact,
   type OutboundEnvelope,
 } from './index';
@@ -170,6 +171,10 @@ describe('buildOutbound — non-flat sets (loops + groups), self-verified', () =
     assertRoundTrips(MAP_211_BOL, fixture('211/sample-211-001.edi'));
   });
 
+  it('round-trips a 214 StatusEvent (derived occurredAt reversed to AT7 date/time)', () => {
+    assertRoundTrips(MAP_214_STATUSEVENT, fixture('214/sample-214-001.edi'));
+  });
+
   it('preserves X12 segment order: a flat rule declared AFTER the loops is emitted after them', () => {
     // A summary/trailing flat segment (here B2, declared last) must not be hoisted above the
     // detail loops — that would be structurally-invalid X12. The builder emits segments in
@@ -205,10 +210,10 @@ describe('buildOutbound — non-flat sets (loops + groups), self-verified', () =
     expect(tags).toEqual(['L11', 'B2']); // detail loop first, summary flat after — not hoisted
   });
 
-  it('returns UNSUPPORTED when a derived field cannot be reproduced (self-verify catches it)', () => {
-    // A map whose `occurredAt` is derived (forward-only) with no element rules for its source:
-    // buildOutbound can't emit those bytes, so the generated doc won't carry occurredAt and
-    // self-verification fails closed rather than emitting a lossy document.
+  it('returns UNSUPPORTED when a derived field cannot be reversed (self-verify catches it)', () => {
+    // `dateTimeToIso` reversal handles zone-less local ISO (what the engine produces). A value
+    // it could never have produced — here a UTC 'Z' suffix — cannot be reversed, so occurredAt
+    // is dropped and self-verification fails closed rather than emitting a lossy document.
     const derivedMap: MapArtifact = withCompiledHash({
       mapVersion: 'test-derived', direction: 'outbound', transactionSet: '998', x12Version: '004010',
       canonicalVersion: '1', recordKind: 'StatusEvent',
@@ -221,7 +226,7 @@ describe('buildOutbound — non-flat sets (loops + groups), self-verified', () =
       ],
     });
     const rec = {
-      kind: 'StatusEvent', canonicalVersion: '1', shipmentId: 'S1', statusCode: 'X1', occurredAt: '2026-06-24T09:00:00', raw: {},
+      kind: 'StatusEvent', canonicalVersion: '1', shipmentId: 'S1', statusCode: 'X1', occurredAt: '2026-06-24T09:00:00Z', raw: {},
     } as unknown as CanonicalRecord;
     const out = buildOutbound(derivedMap, rec, ENV);
     expect(out.ok).toBe(false);
