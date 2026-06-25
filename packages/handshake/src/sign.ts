@@ -22,7 +22,13 @@ interface SubtleLike {
 }
 
 const enc = new TextEncoder();
-const subtle = (): SubtleLike => (globalThis as unknown as { crypto: { subtle: SubtleLike } }).crypto.subtle;
+const subtle = (): SubtleLike => {
+  const c = (globalThis as unknown as { crypto?: { subtle?: SubtleLike } }).crypto;
+  if (!c?.subtle) {
+    throw new Error('WebCrypto (globalThis.crypto.subtle) is unavailable; HSP signing requires a Workers or Node 20+ runtime');
+  }
+  return c.subtle;
+};
 
 function abToB64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);

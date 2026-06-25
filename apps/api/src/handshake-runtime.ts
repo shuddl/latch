@@ -11,15 +11,16 @@ import type { GoldenCase, GoldenFlow } from '@latch/handshake';
 
 const edi = createEdiCore();
 
-/** Drop the lossless `raw.__edi` snapshot so co-cert compares semantic canonical only. */
+/** Drop the lossless `raw.__edi` snapshot so co-cert compares semantic canonical only.
+ *  Shallow clone (no deep JSON round-trip): we only need to rebuild the top object and its
+ *  `raw` map; nested canonical values are shared by reference and never mutated. */
 function stripRaw(rec: unknown): unknown {
   if (!rec || typeof rec !== 'object') return rec ?? null;
-  const clone = JSON.parse(JSON.stringify(rec)) as { raw?: Record<string, unknown> };
-  if (clone.raw && typeof clone.raw === 'object') {
-    delete clone.raw[RAW_EDI_KEY];
-    if (Object.keys(clone.raw).length === 0) delete clone.raw;
-  }
-  return clone;
+  const { raw, ...rest } = rec as { raw?: Record<string, unknown> } & Record<string, unknown>;
+  if (!raw || typeof raw !== 'object') return rest;
+  const { [RAW_EDI_KEY]: _omit, ...restRaw } = raw;
+  void _omit;
+  return Object.keys(restRaw).length > 0 ? { ...rest, raw: restRaw } : rest;
 }
 
 /**
