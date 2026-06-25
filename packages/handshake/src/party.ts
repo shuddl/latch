@@ -9,7 +9,8 @@
 // transform) and the golden corpus + intended canonical for the flows it sends, so the
 // handshake never depends on @latch/transform — the real wiring slots in at the DO/API layer.
 
-import { newId, stableStringify } from '@latch/shared';
+import { newId } from '@latch/shared';
+import { compareResults, buildManifest } from './cocert';
 import {
   generateKeyPair,
   sha256Hex,
@@ -21,6 +22,7 @@ import {
 } from './sign';
 import {
   HSP_VERSION,
+  type CanonicalResult,
   type CertManifest,
   type GoldenCase,
   type HandshakeStatus,
@@ -32,7 +34,7 @@ import {
 export interface GoldenFlow {
   cases: GoldenCase[];
   /** What the SENDER means each case to become, canonically — the co-cert ground truth. */
-  expected: { name: string; canonical: unknown }[];
+  expected: CanonicalResult[];
 }
 
 export interface PartyConfig {
@@ -49,7 +51,7 @@ export interface PartyConfig {
   mapDigest: string;
   commitments: Record<string, string>;
   /** This party's inbound transform: run a peer's corpus through its map → canonical results. */
-  runCorpus: (set: string, cases: GoldenCase[]) => { name: string; canonical: unknown }[];
+  runCorpus: (set: string, cases: GoldenCase[]) => CanonicalResult[];
 }
 
 export class HandshakeParty {
@@ -85,15 +87,6 @@ export async function makeParty(
 ): Promise<HandshakeParty> {
   const keys = cfg.keys ?? (await generateKeyPair());
   return new HandshakeParty(role, { ...cfg, keys });
-}
-
-function compareResults(
-  expected: { name: string; canonical: unknown }[],
-  got: { name: string; canonical: unknown }[],
-): boolean {
-  if (expected.length !== got.length) return false;
-  const byName = new Map(got.map((r) => [r.name, stableStringify(r.canonical)]));
-  return expected.every((e) => byName.get(e.name) === stableStringify(e.canonical));
 }
 
 /**
@@ -201,16 +194,18 @@ export async function runHandshake(
     responder.advance('COCERT_PASSED');
 
     // ── Phase 5: ATTESTATION ────────────────────────────────────────────────
-    const manifest: CertManifest = {
+    const manifest: CertManifest = buildManifest({
       hspVersion: HSP_VERSION,
       sessionId,
       canonicalVersion,
-      parties: { initiator: initiator.identity, responder: responder.identity },
-      mapDigests: { initiator: initiator.cfg.mapDigest, responder: responder.cfg.mapDigest },
+      initiator: initiator.identity,
+      responder: responder.identity,
+      initiatorMapDigest: initiator.cfg.mapDigest,
+      responderMapDigest: responder.cfg.mapDigest,
       coCertResultHash: await sha256Hex(resultHashes),
-      flows: { initiatorSends: initiator.cfg.sends, responderSends: responder.cfg.sends },
-      createdAt: 0, // caller stamps the real time; kept fixed so the manifest hashes deterministically
-    };
+      initiatorSends: initiator.cfg.sends,
+      responderSends: responder.cfg.sends,
+    });
     const initiatorSig = await signManifest(manifest, initiator.cfg.keys.privateKey);
     const responderSig = await signManifest(manifest, responder.cfg.keys.privateKey);
     // Each side verifies the other's countersignature before trusting the manifest.

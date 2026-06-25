@@ -5,4 +5,7 @@
 
 export * from './types';
 export * from './sign';
+export * from './cocert';
 export * from './party';
+export * from './participant';
+export * from './drive';

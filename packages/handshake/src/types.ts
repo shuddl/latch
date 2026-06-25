@@ -16,6 +16,7 @@ export type HspType =
   | 'GOLDEN_SET'
   | 'GOLDEN_RESULT'
   | 'ATTEST'
+  | 'ATTEST_ACK'
   | 'ACTIVATE'
   | 'ACTIVATE_ACK'
   | 'ERROR';
@@ -66,6 +67,11 @@ export interface GoldenCase {
   name: string;
   input: string;
 }
+/** A receiver's canonical output for one golden case (compared against the sender's intent). */
+export interface CanonicalResult {
+  name: string;
+  canonical: unknown;
+}
 export interface GoldenSetPayload {
   set: string;
   cases: GoldenCase[];
@@ -73,12 +79,18 @@ export interface GoldenSetPayload {
 export interface GoldenResultPayload {
   set: string;
   /** The receiver's canonical output per case (signed via the envelope). */
-  results: { name: string; canonical: unknown }[];
+  results: CanonicalResult[];
   /** Hash of `results` for inclusion in the manifest. */
   resultHash: string;
 }
 export interface AttestPayload {
   manifest: CertManifest;
+  /** The initiator's signature over the manifest — the responder counter-verifies it. */
+  initiatorSig: string;
+}
+export interface AttestAckPayload {
+  /** The responder's counter-signature over the same manifest. */
+  responderSig: string;
 }
 export interface ActivatePayload {
   connectivity: string;

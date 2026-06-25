@@ -7,6 +7,8 @@ import { D1R2Store } from './store/d1r2';
 import { KvRateLimiter } from './ratelimit';
 import { ingestInbound } from './ingest';
 import { createAnthropicClient } from '@latch/shared';
+import { HandshakeHost } from './handshake/host';
+import { engineFactoryForDO, handleHostRequest } from './handshake/do-runtime';
 import type { Env } from './env';
 
 const app = createApp(
@@ -70,12 +72,19 @@ export class ConnectionDO {
   }
 }
 
+// Hosts one side of a bilateral handshake (docs/05, M6). Each request is one HSP transition;
+// the participant state is rehydrated from this DO's storage every time, so the DO can be
+// evicted and resumed mid-handshake. The engine-backed corpus runner is rebuilt per load from
+// the pinned map, so no live transform state is held between transitions.
 export class HandshakeDO {
+  private readonly host: HandshakeHost;
   constructor(
     readonly state: DurableObjectState,
     readonly env: Env,
-  ) {}
-  async fetch(): Promise<Response> {
-    return new Response('HandshakeDO: not yet implemented', { status: 501 });
+  ) {
+    this.host = new HandshakeHost(state.storage, engineFactoryForDO(state.storage, env));
+  }
+  async fetch(req: Request): Promise<Response> {
+    return handleHostRequest(this.host, this.state.storage, req);
   }
 }
