@@ -5,6 +5,7 @@ export * from './map';
 export * from './address-schema';
 export * from './engine';
 export * from './outbound';
+export * from './envelope';
 export { MAP_214_STATUSEVENT } from './maps/214-statusevent';
 export { MAP_990_TENDERRESPONSE } from './maps/990-tenderresponse';
 export { MAP_204_TENDER } from './maps/204-tender';
