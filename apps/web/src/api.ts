@@ -6,10 +6,20 @@ import type {
   CertificationReportData,
   Connection,
   DriftEvent,
+  HandshakeOutcome,
   MapRecord,
   Partner,
   Transaction,
 } from './types';
+
+/** One party in a bilateral handshake request (the product's own input: a map + samples). */
+export interface HandshakePartyInput {
+  org: string;
+  tenantId?: string;
+  mapId: string;
+  set: string;
+  cases: { name: string; input: string }[];
+}
 
 const BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://127.0.0.1:8787';
 const ORG = (import.meta.env.VITE_DEV_ORG as string | undefined) ?? 'default';
@@ -90,4 +100,24 @@ export const api = {
   listDrift: (connectionId: string) => call<DriftEvent[]>(`/v1/connections/${connectionId}/drift`),
   approveDrift: (id: string) => post<DriftEvent>(`/v1/drift/${id}/approve`, {}),
   dismissDrift: (id: string) => post<DriftEvent>(`/v1/drift/${id}/dismiss`, {}),
+
+  // Handshake (HSP). A below-cert outcome comes back as 422 with the outcome body — a real,
+  // renderable result (the proof simply didn't co-certify), not a transport error.
+  runHandshake: async (input: {
+    initiator: HandshakePartyInput;
+    responder: HandshakePartyInput;
+    canonicalVersion?: string;
+    sessionId?: string;
+  }): Promise<HandshakeOutcome> => {
+    const res = await fetch(`${BASE}/v1/handshake/bilateral`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Latch-Dev-Org': ORG },
+      body: JSON.stringify(input),
+    });
+    const body = JSON.parse((await res.text()) || 'null');
+    if (res.status === 200 || res.status === 422) return body as HandshakeOutcome;
+    const e = body?.error ?? {};
+    throw new ApiError(e.code ?? 'ERROR', e.message ?? `Handshake failed (${res.status})`, res.status);
+  },
+  getHandshake: (sessionId: string) => call<HandshakeOutcome>(`/v1/handshake/${sessionId}`),
 };

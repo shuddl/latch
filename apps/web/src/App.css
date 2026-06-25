@@ -190,3 +190,34 @@ button.conn-card:active {
   letter-spacing: 0.06em;
   color: var(--ink-500);
 }
+
+/* Dashboard head actions + Connect-via-Latch form (M6.3). */
+.head-actions {
+  display: flex;
+  gap: var(--s-3);
+}
+.connect-parties {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--s-4);
+}
+.connect-party {
+  padding: var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.connect-party-title {
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-500);
+}
+@media (max-width: 720px) {
+  .connect-parties {
+    grid-template-columns: 1fr;
+  }
+  .head-actions {
+    flex-wrap: wrap;
+  }
+}
