@@ -9,3 +9,4 @@ export * from './cocert';
 export * from './party';
 export * from './participant';
 export * from './drive';
+export * from './shim';
