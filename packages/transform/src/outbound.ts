@@ -121,13 +121,16 @@ function materializeFlat(rules: ChildRule[], obj: Record<string, unknown>, inver
         continue;
       }
       case 'derived': {
+        const value = getPath(obj, rule.path);
+        // An absent/empty optional derived field has nothing to emit — skip silently, exactly
+        // as `element`/`codemap` do. Only a PRESENT but non-reversible value warrants a warning.
+        if (value === undefined || value === null || value === '') continue;
         // Reverse the known builtins so derived fields can be authored outbound. For
         // `dateTimeToIso` we split the canonical ISO back into its source date/time elements;
         // self-verification confirms the re-derived value matches, so a malformed ISO simply
         // won't round-trip and fails closed.
-        if (rule.transform === 'dateTimeToIso') {
-          const iso = getPath(obj, rule.path);
-          const split = typeof iso === 'string' ? reverseDateTimeToIso(iso) : undefined;
+        if (rule.transform === 'dateTimeToIso' && typeof value === 'string') {
+          const split = reverseDateTimeToIso(value);
           if (split) {
             const dateAddr = rule.inputs[0];
             const timeAddr = rule.inputs[1];
