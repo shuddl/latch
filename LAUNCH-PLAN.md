@@ -7,6 +7,111 @@
 
 ---
 
+## 0. Where we are — build audit & launch-readiness analysis (2026-06-25)
+
+> This section supersedes the sprint statuses in §3. It is grounded in verified repo state
+> (205 tests · typecheck/lint 13/13 · no stubs · zero TODO/FIXME), not aspiration. Full
+> remediation playbooks for every high-risk item live in `.claude/skills/` — one skill file
+> per item, ready for the agent or engineer who picks it up.
+
+### 0.1 Sprint scorecard
+
+| Sprint | Status | Notes |
+|---|---|---|
+| S0 scaffold | ✅ done | **except the R1 connectivity spike** — never run in the real Workers runtime |
+| S1 engine | ✅ done | spec/mapgen/transform + B1 three-oracle verify |
+| S2 proof + UI (→L0) | ✅ code done · **gate not passed** | L0 needs deploy + a real guide (N1); async jobs/SSE skipped (accepted debt) |
+| S3 live + acks (→L1) | ✅ via HTTP path · **gate not passed** | full pipeline proven in tests; the SFTP *wire* remains |
+| S4 six sets | ✅ done, exceeded | + outbound generation for all six (loops/groups/derived/self-identity envelope), self-verifying |
+| S5 AS2 + library (→L2) | ◐ half | Spec Library ✅ accreting; **AS2 not started** |
+| S6–S7 self-heal | ✅ done | except "dollars protected" (D6 formula undecided) |
+| S8 auth + hardening | ❌ not started | deliberate (`CLAUDE.md §2.3`) — now the gate to any external user |
+| S9 GA + case study | ❌ not started | partner-gated (N1/N2) |
+| S10–S11 handshake (→L4) | ✅ done **ahead of plan** | built pre-launch: DO-hosted HSP w/ persist-resume, shim, signed-manifest UX — needs only a live deploy to demonstrate |
+
+### 0.2 What functions poorly or not at all (verified against the code)
+
+| State | Item | Evidence |
+|---|---|---|
+| **Not at all** | Deployment | `wrangler.toml` still has `REPLACE_WITH_*` ids; nothing provisioned |
+| **Not at all** | Live transport (SFTP/AS2 wire) | no concrete `SftpClient`; zero AS2 code |
+| **Not at all** | Outbound emit+send API endpoint | `buildOutbound`/`deriveResponseEnvelope` never referenced in `apps/api` |
+| **Not at all** | Real auth | dev `X-Latch-Dev-Org` header only |
+| **Not at all** | PDF companion-guide upload | `ingestSpec` is text-only; no file/R2 path (OP-4) |
+| **Not at all** | Async jobs / SSE progress | no `/v1/jobs`, no event-stream (accepted while cert is fast) |
+| **Not at all** | Share-link certification | no endpoint; PG-8 token policy undecided |
+| **Not at all** | Observability/alerting | structured logs only — no metrics, no alerts |
+| **Unproven in prod runtime** | DO orchestration + queue consumer on workerd | unit-proven with in-memory peers; no `vitest-pool-workers` test |
+| **Unproven on real input** | LLM map-gen on real companion guides | all goldens synthetic; no eval set (PG-7) |
+| **Soft/coarse by design** | KV rate limit (soft); 997 AK3/AK4 positions; loop nesting; D6 metric | documented, accepted debt |
+
+Everything else — parse/transform/verify/heal/handshake/outbound engines, API, UI — is built and test-proven.
+
+### 0.3 Remaining skill matrix (engine work: **zero**)
+
+**14 skills · Feasible 10 · Conditional 3 · Infeasible 0 · Unknown 1 · Risk 🟢4 🟡4 🔴5 ⚫1**
+
+| # | Skill | Cx | Feasibility | Risk | Gate | Effort | Playbook |
+|---|---|---|---|---|---|---|---|
+| 1 | Cloudflare provisioning + deploy + CI/CD | 4 | ✅ | 🔴 blocks all | creds (user) | 1–2d | `.claude/skills/workers-deploy-provisioning` |
+| 2 | workerd integration tests (DOs, queues) | 5 | ✅ | 🔴 | — | 1–2d | `.claude/skills/workerd-integration-testing` |
+| 3 | Outbound emit+send endpoint (mock transport) | 4 | ✅ | 🟡 | — | 1d | routine (TASKS 3.3) |
+| 4 | PDF guide upload → R2 → Anthropic native-PDF | 4 | ✅ | 🟡 | #1 for prod | 1–2d | routine (OP-4) |
+| 5 | Real-guide map-gen quality + LLM eval set | 7 | ✅ | 🔴 | key + real guides | 3–5d | `.claude/skills/real-guide-mapgen-quality` |
+| 6 | Clerk auth + multi-tenant flip | 6 | ✅ | 🔴 | #1 + go-ahead | 2–4d | `.claude/skills/clerk-multitenant-flip` |
+| 7 | SFTP transport (bridge OR native SSH) | 8 | ⚠️ | 🔴 | #1 + endpoint | 2–3d bridge / 5–10d native | `.claude/skills/sftp-workers-transport` |
+| 8 | AS2 adapter (S/MIME + MDN) | 9 | ⚠️ | ⚫ | certs + partner interop | 10–15d (3–5d managed) | `.claude/skills/as2-workers-adapter` |
+| 9 | Observability, alerting, error budgets | 4 | ✅ | 🟡 | #1 | 2–3d | 5.2 |
+| 10 | R2 lifecycle + secret-rotation runbook | 3 | ✅ | 🟢 | #1 | 1d | 5.2 |
+| 11 | Share-link cert tokens | 3 | ✅ | 🟢 | #6 | 1d | PG-8 |
+| 12 | Async jobs + SSE progress | 4 | ✅ | 🟢 | only if cert slows | 1–2d | 1.5 debt |
+| 13 | Design-partner onboarding + case study | 5 | ⚠️ | 🟡 | partner (N1/N2) | external | OP-1, 5.4 |
+| 14 | "Dollars protected" metric | 2 | ❓ formula undecided | 🟢 | decision (D6) | 0.5d | D6 |
+
+### 0.4 Risk deep-dives (🔴/⚫ — full playbooks in the skill files)
+
+1. **Deploy (#1)** — 🔴 only because *everything queues behind it*; the work is routine. One
+   external need: Cloudflare account access + `ANTHROPIC_API_KEY`. Mitigation: scripted,
+   idempotent provisioning + a post-deploy smoke test.
+2. **workerd integration (#2)** — the two-DO handshake orchestration and queue consumer are
+   proven against in-memory stand-ins; workerd's input gates, DO storage, and queue batching
+   are close-but-not-identical. `@cloudflare/vitest-pool-workers` closes this in CI before
+   the first deploy can embarrass us.
+3. **Real-guide map-gen (#5)** — the cert gate means a bad map **cannot ship** (correctness
+   is structurally protected); the residual risk is *pass-rate* — "same-day" failing on real
+   guides. Mitigation: PG-7 eval harness fed by real guides as they arrive.
+4. **Clerk flip (#6)** — the single most security-sensitive remaining change. Isolation is
+   already engineered (tenant-scoped stores, prefix-guarded spec library) but must be
+   re-audited under real JWTs with a cross-tenant test suite.
+5. **SFTP (#7)** — ⚠️ because pure-JS SSH inside workerd is genuinely uncertain (no native
+   ssh2; crypto+transport over `cloudflare:sockets`). **De-risked by a fallback that is not
+   a compromise:** a tiny SFTP-bridge poller that drops files into the already-working HTTP
+   `ingest` — 2–3 days on a proven path. Native client = a time-boxed spike behind the
+   existing `SftpClient` seam.
+6. **AS2 (#8)** — ⚫ the only potential launch-killer *if* the first partners demand native
+   AS2: S/MIME+MDN interop against decades-old Drummond-certified stacks cannot be proven
+   without a live counterparty. In order: (a) confirm the design partner's actual transport
+   — this may be a non-issue; (b) launch via managed AS2 gateway or VAN (3–5d); (c) native
+   PKI.js adapter as a cost-reduction follow-up, never the launch blocker.
+
+### 0.5 Revised critical path & bottom line
+
+Original path §3 assumed 17–27 weeks from zero. The engine sprints are done; what remains:
+
+- **P0 — Deploy** (gate: creds) → then L0 is demonstrable on the dev subdomain.
+- **P1 — parallel, code-only, can start today:** workerd tests (#2) · emit+send endpoint (#3) · PDF upload (#4).
+- **P2 — Clerk auth** (#6) (+ share links #11) → external users possible.
+- **P3 — Transport:** SFTP-bridge (#7) → **L1 design-partner live**; AS2 decision per 0.4.6 → L2.
+- **P4 — Hardening** (#9, #10, #12 if needed).
+- **P5 — GA:** real guides through the eval harness (#5), partner estate, case study (#13), D6 (#14) → **L3**.
+
+**Bottom line: ~25–40 engineer-days of code work remain.** An L1 a real partner can use
+(SFTP-bridge) is **~3–4 weeks**; pristine L3 GA including AS2-or-gateway and full hardening
+is **~6–9 weeks** — calendar dominated by the external gates (creds, partner guides, AS2
+interop), not code. L4's build is *already done*; it demonstrates the moment we deploy.
+
+---
+
 ## 1. Launch is not one event — it's four gates
 
 Latch "launches" in stages, each a real release with its own audience and its own proof. This is the spine of "phases through launch."
