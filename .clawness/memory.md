@@ -10,4 +10,5 @@
 ## Lessons
 - DO storage can't persist CryptoKey (DataCloneError on workerd); in-memory test storage hides it — see handshake/host.ts
 - Unit-green ≠ runs: smoke new DO/queue/crypto paths under `wrangler dev --local` before calling them done
-- certify() corpora (packages/verify/src/corpus/*) hard-code expected canonical; non-fixture samples fail 422
+- Corpus expected outputs are valid ONLY for the byte-identical reference fixture; partner samples need a confirmed anchor (verify/corpus/connection.ts)
+- D1 store: only tenant `default` is seeded; any other org 500s on the tenants FK (in-memory store hides it)

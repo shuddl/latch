@@ -91,6 +91,12 @@ export function certify(map: MapArtifact, corpus: GoldenCorpus): CertificationRe
       forwardMatch = fwd.match;
       if (!fwd.match) issues.push(...fwd.issues);
     }
+    // A partner sample with no confirmed expected output cannot certify: round-trip and
+    // differential only prove the map is self-consistent, not that it means the right thing.
+    const unconfirmed = rec.requireAnchor === true && !rec.expectedCanonical;
+    if (unconfirmed) {
+      issues.push('its expected output has not been confirmed yet — review and confirm it, then certify again');
+    }
 
     fidelitySum += rt.fidelity;
     fidelityCount += 1;
@@ -103,6 +109,7 @@ export function certify(map: MapArtifact, corpus: GoldenCorpus): CertificationRe
     };
     if (forwardMatch !== undefined) result.forwardMatch = forwardMatch;
     if (differentialMatch !== undefined) result.differentialMatch = differentialMatch;
+    if (unconfirmed) result.unconfirmed = true;
     records.push(result);
     if (issues.length > 0) shortfalls.push(`${rec.name}: ${issues.join('; ')}`);
   }
@@ -179,7 +186,10 @@ export function certify(map: MapArtifact, corpus: GoldenCorpus): CertificationRe
   };
 
   // Forward/differential failures are hard fails even if coverage holds.
-  const oracleClean = records.every((r) => r.forwardMatch !== false && r.differentialMatch !== false);
+  // An unconfirmed partner sample is a hard fail too (no anchor → no proof of meaning).
+  const oracleClean = records.every(
+    (r) => r.forwardMatch !== false && r.differentialMatch !== false && r.unconfirmed !== true,
+  );
   const passed = oracleClean && Object.values(dimensions).every((d) => d.passed);
 
   return { mapHash, corpusHash, passed, dimensions, records, shortfalls };

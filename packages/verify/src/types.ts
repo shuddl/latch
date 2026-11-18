@@ -32,6 +32,9 @@ export interface GoldenRecord {
   expectGraceful?: boolean;
   /** Sample-confirmed anchor: the human-verified expected canonical (forward oracle). */
   expectedCanonical?: CanonicalRecord[];
+  /** A partner sample: it MUST carry a confirmed `expectedCanonical` for the map to certify
+   *  (docs/07 — otherwise the map would only be graded against its own interpretation). */
+  requireAnchor?: boolean;
 }
 
 /** A coded element and the full set of qualifier codes the corpus must exercise. */
@@ -71,6 +74,8 @@ export interface RecordResult {
   graceful?: boolean; // adversarial only
   forwardMatch?: boolean; // when an expectedCanonical anchor was provided
   differentialMatch?: boolean; // engine output agrees with independent address read
+  /** A partner sample whose expected output nobody has confirmed yet — blocks certification. */
+  unconfirmed?: boolean;
   issues: string[];
 }
 

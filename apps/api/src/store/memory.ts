@@ -9,6 +9,7 @@ import type { Certification, Connection, DriftEvent, DriftStatus, MapRecord, Par
 import type {
   AccreteSpecData,
   Clock,
+  ConfirmedSample,
   ControlNumbers,
   CreateCertificationData,
   CreateConnectionData,
@@ -30,6 +31,7 @@ interface TenantData {
   partners: Map<string, Partner>;
   connections: Map<string, Connection>;
   samples: Map<string, string[]>; // connectionId → raw EDI
+  anchors: Map<string, Record<string, ConfirmedSample>>; // connectionId → sampleHash → confirmation
   maps: Map<string, MapRecord>;
   artifacts: Map<string, MapArtifact>; // mapId → artifact
   certifications: Map<string, Certification>;
@@ -45,6 +47,7 @@ function emptyTenant(): TenantData {
     partners: new Map(),
     connections: new Map(),
     samples: new Map(),
+    anchors: new Map(),
     maps: new Map(),
     artifacts: new Map(),
     certifications: new Map(),
@@ -135,6 +138,13 @@ export class InMemoryStore implements Store {
   }
   async getSamples(tenantId: string, connectionId: string): Promise<string[]> {
     return [...(this.t(tenantId).samples.get(connectionId) ?? [])];
+  }
+  async getSampleAnchors(tenantId: string, connectionId: string): Promise<Record<string, ConfirmedSample>> {
+    return clone(this.t(tenantId).anchors.get(connectionId) ?? {});
+  }
+  async putSampleAnchor(tenantId: string, connectionId: string, sampleHash: string, anchor: ConfirmedSample): Promise<void> {
+    const map = this.t(tenantId).anchors;
+    map.set(connectionId, { ...(map.get(connectionId) ?? {}), [sampleHash]: clone(anchor) });
   }
 
   async createMap(tenantId: string, data: CreateMapData): Promise<MapRecord> {

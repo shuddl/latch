@@ -10,3 +10,4 @@ export { buildCorpus990 } from './corpus/990';
 export { buildCorpus204 } from './corpus/204';
 export { buildCorpus210 } from './corpus/210';
 export { buildCorpus211 } from './corpus/211';
+export * from './corpus/connection';

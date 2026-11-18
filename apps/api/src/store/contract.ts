@@ -90,6 +90,20 @@ export function runStoreContract(makeStore: () => Promise<Store> | Store) {
     expect(await store.getSamples('default', connection.id)).toEqual(['A', 'B', 'C']);
   });
 
+  it('sample anchors: confirmations are stored per sample hash and tenant-scoped', async () => {
+    const { connection } = await seedMap(store, 'default');
+    expect(await store.getSampleAnchors('default', connection.id)).toEqual({});
+    const expected = [
+      { kind: 'StatusEvent' as const, canonicalVersion: '1' as const, shipmentId: 'P1', statusCode: 'X1', occurredAt: '2026-06-18T13:00:00' },
+    ];
+    await store.putSampleAnchor('default', connection.id, 'hash-a', { expected, confirmedAt: 1 });
+    await store.putSampleAnchor('default', connection.id, 'hash-b', { expected, confirmedAt: 2 });
+    const anchors = await store.getSampleAnchors('default', connection.id);
+    expect(Object.keys(anchors).sort()).toEqual(['hash-a', 'hash-b']);
+    expect(anchors['hash-a']).toEqual({ expected, confirmedAt: 1 });
+    expect(await store.getSampleAnchors('other', connection.id)).toEqual({});
+  });
+
   it('maps: create, fetch record + artifact, update status', async () => {
     const { map } = await seedMap(store, 'default');
     expect(map.status).toBe('draft');

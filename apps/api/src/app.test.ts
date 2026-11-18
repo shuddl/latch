@@ -395,4 +395,132 @@ describe('control-plane API', () => {
     expect(a.id).toBe(b.id);
     expect((await h.json(await h.call('/v1/partners'))).length).toBe(1);
   });
+
+  // ── Certifying a partner's OWN files (not the repo fixture) ────────────────────
+  describe('partner samples must be confirmed before a map can certify', () => {
+    // A different, equally valid partner 214: other PRO, city and time.
+    const PARTNER_214 = FIXTURE_214.replace('0510938', '7777001')
+      .replace('MEMPHIS*TN', 'CHICAGO*IL')
+      .replace('20260618*1300', '20260701*0915');
+
+    async function onboard(samples: string[], rules?: unknown) {
+      const partner = await h.json(await h.call('/v1/partners', { method: 'POST', body: { name: 'Partner' } }));
+      const conn = await h.json(
+        await h.call('/v1/connections', {
+          method: 'POST',
+          body: { partnerId: partner.id, direction: 'inbound', transactionSet: '214', connectivity: { type: 'api' } },
+        }),
+      );
+      await h.call(`/v1/connections/${conn.id}/samples`, { method: 'POST', body: { samples } });
+      const map = await h.json(
+        await h.call(`/v1/connections/${conn.id}/maps`, { method: 'POST', body: rules ? { rules } : {} }),
+      );
+      return { conn, map };
+    }
+    const review = async (mapId: string) => (await h.json(await h.call(`/v1/maps/${mapId}/samples`))).samples;
+    const certify = (mapId: string) => h.call(`/v1/maps/${mapId}/certify`, { method: 'POST', body: {} });
+
+    it('blocks an unconfirmed sample, then certifies once the operator confirms it', async () => {
+      const { conn, map } = await onboard([PARTNER_214]);
+
+      const blocked = await certify(map.id);
+      expect(blocked.status).toBe(422);
+      const report = await h.json(await h.call(`/v1/certifications/${(await h.json(blocked)).id}/report`));
+      expect(report.result.shortfalls).toHaveLength(1);
+      expect(report.result.shortfalls[0]).toMatch(/sample 1: .*has not been confirmed/);
+
+      // The review shows what the map read, for a person to check.
+      const [sample] = await review(map.id);
+      expect(sample.confirmedBy).toBeNull();
+      expect(sample.reading[0]).toMatchObject({
+        kind: 'StatusEvent',
+        shipmentId: '7777001',
+        occurredAt: '2026-07-01T09:15:00',
+        location: { city: 'CHICAGO', state: 'IL' },
+      });
+      expect(JSON.stringify(sample.reading)).not.toContain('__edi');
+
+      const confirm = await h.call(`/v1/connections/${conn.id}/samples/${sample.hash}/confirm`, {
+        method: 'POST',
+        body: { expected: sample.reading },
+      });
+      expect(confirm.status).toBe(200);
+      expect((await review(map.id))[0].confirmedBy).toBe('operator');
+
+      const passed = await certify(map.id);
+      expect(passed.status).toBe(200);
+      expect((await h.json(passed)).passed).toBe(true);
+      expect((await h.call(`/v1/connections/${conn.id}/go-live`, { method: 'POST', body: {} })).status).toBe(200);
+    });
+
+    it('the repo reference fixture is pre-confirmed (its expected output is hand-verified)', async () => {
+      const { map } = await onboard([FIXTURE_214]);
+      expect((await review(map.id))[0].confirmedBy).toBe('reference');
+      expect((await certify(map.id)).status).toBe(200);
+    });
+
+    it('a confirmed expectation fails a map that reads the wrong element', async () => {
+      // Confirm the truth using the correct map…
+      const good = await onboard([PARTNER_214]);
+      const [sample] = await review(good.map.id);
+      await h.call(`/v1/connections/${good.conn.id}/samples/${sample.hash}/confirm`, {
+        method: 'POST',
+        body: { expected: sample.reading },
+      });
+      // …then register a map on the same connection that reads the state into the city.
+      const wrong = JSON.parse(JSON.stringify(MAP_214_STATUSEVENT));
+      delete wrong.compiledHash;
+      wrong.rules.find((r: Json) => r.path === 'location.city').source.element = 2;
+      const bad = await h.json(
+        await h.call(`/v1/connections/${good.conn.id}/maps`, { method: 'POST', body: { rules: wrong } }),
+      );
+      const res = await certify(bad.id);
+      expect(res.status).toBe(422);
+      const report = await h.json(await h.call(`/v1/certifications/${(await h.json(res)).id}/report`));
+      expect(report.result.records[0].forwardMatch).toBe(false);
+    });
+
+    it('every uploaded sample needs its own confirmation', async () => {
+      const second = PARTNER_214.replace('7777001', '7777002');
+      const { conn, map } = await onboard([PARTNER_214, second]);
+      const samples = await review(map.id);
+      expect(samples).toHaveLength(2);
+      await h.call(`/v1/connections/${conn.id}/samples/${samples[0].hash}/confirm`, {
+        method: 'POST',
+        body: { expected: samples[0].reading },
+      });
+      expect((await certify(map.id)).status).toBe(422); // sample 2 still unconfirmed
+      await h.call(`/v1/connections/${conn.id}/samples/${samples[1].hash}/confirm`, {
+        method: 'POST',
+        body: { expected: samples[1].reading },
+      });
+      expect((await certify(map.id)).status).toBe(200);
+    });
+
+    it('rejects a confirmation for an unknown sample, a bad body, or another tenant', async () => {
+      const { conn, map } = await onboard([PARTNER_214]);
+      const [sample] = await review(map.id);
+      const path = `/v1/connections/${conn.id}/samples/${sample.hash}/confirm`;
+      expect((await h.call(`/v1/connections/${conn.id}/samples/deadbeef/confirm`, { method: 'POST', body: { expected: sample.reading } })).status).toBe(404);
+      expect((await h.call(path, { method: 'POST', body: { expected: [] } })).status).toBe(400);
+      expect((await h.call(path, { method: 'POST', body: { expected: [{ kind: 'Nope' }] } })).status).toBe(400);
+      expect((await h.call(path, { method: 'POST', org: 'other', body: { expected: sample.reading } })).status).toBe(404);
+      expect((await certify(map.id)).status).toBe(422); // none of those confirmed anything
+    });
+
+    it('self-heal shadow re-certifies against the confirmed partner corpus', async () => {
+      const { conn, map } = await onboard([PARTNER_214]);
+      const [sample] = await review(map.id);
+      await h.call(`/v1/connections/${conn.id}/samples/${sample.hash}/confirm`, { method: 'POST', body: { expected: sample.reading } });
+      await certify(map.id);
+      await h.call(`/v1/connections/${conn.id}/go-live`, { method: 'POST', body: {} });
+
+      // Additive drift on live traffic: a new L11 qualifier value.
+      const drifted = PARTNER_214.replace('L11*BOL12345*BM', 'L11*BOL12345*ZZ');
+      const res = await h.json(await h.call(`/v1/connections/${conn.id}/ingest`, { method: 'POST', body: { raw: drifted } }));
+      expect(res.drift).toBeTruthy();
+      expect(JSON.parse(res.drift.detail).shadowPassed).toBe(true);
+      expect(res.drift.status).toBe('auto_applied');
+    });
+  });
 });
