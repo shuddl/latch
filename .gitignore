@@ -474,3 +474,6 @@ FodyWeavers.xsd
 .clawness/*
 !.clawness/memory.md
 !.clawness/rules/
+
+# anchor-memory — per-machine session state
+.anchor/
