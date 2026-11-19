@@ -40,6 +40,8 @@ PATCH  /v1/maps/:id                         Override a mapping rule → re-cert 
 
 ### Certification (the proof)
 ```
+GET    /v1/maps/:id/samples               The map's reading of each uploaded sample, for the operator to review
+POST   /v1/connections/:id/samples/:hash/confirm   Lock the reviewed expected output for one sample (forward-oracle anchor)
 POST   /v1/maps/:id/certify               Synthesize corpus (if needed) + inject + score → { jobId } (202)
 GET    /v1/certifications/:id             Get a certification run (headline metrics + per-field results ref)
 GET    /v1/certifications/:id/report      Get the visual report bundle / data for rendering

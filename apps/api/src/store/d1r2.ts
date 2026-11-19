@@ -24,6 +24,7 @@ import type {
 import type {
   AccreteSpecData,
   Clock,
+  ConfirmedSample,
   ControlNumbers,
   CreateCertificationData,
   CreateConnectionData,
@@ -223,6 +224,17 @@ export class D1R2Store implements Store {
   }
   async getSamples(tenantId: string, connectionId: string): Promise<string[]> {
     return (await this.getJson<string[]>(this.sampleKey(tenantId, connectionId))) ?? [];
+  }
+  private anchorKey(tenantId: string, connectionId: string): string {
+    return `sample-anchors/${tenantId}/${connectionId}.json`;
+  }
+  async getSampleAnchors(tenantId: string, connectionId: string): Promise<Record<string, ConfirmedSample>> {
+    return (await this.getJson<Record<string, ConfirmedSample>>(this.anchorKey(tenantId, connectionId))) ?? {};
+  }
+  async putSampleAnchor(tenantId: string, connectionId: string, sampleHash: string, anchor: ConfirmedSample): Promise<void> {
+    const key = this.anchorKey(tenantId, connectionId);
+    const current = (await this.getJson<Record<string, ConfirmedSample>>(key)) ?? {};
+    await this.putJson(key, { ...current, [sampleHash]: anchor });
   }
 
   // ── Maps (+ the synthetic spec the FK requires) ──────────────────────────────

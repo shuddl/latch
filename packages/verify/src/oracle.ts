@@ -62,7 +62,7 @@ export function roundTripOracle(map: MapArtifact, input: string): RoundTripOutco
 }
 
 /** Strip the lossless EDI snapshot so canonical comparison ignores the raw escape hatch. */
-function stripRaw(rec: CanonicalRecord): unknown {
+export function stripRaw(rec: CanonicalRecord): unknown {
   const clone = JSON.parse(JSON.stringify(rec)) as { raw?: Record<string, unknown> };
   if (clone.raw && typeof clone.raw === 'object') {
     delete clone.raw[RAW_EDI_KEY];

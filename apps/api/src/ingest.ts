@@ -10,6 +10,7 @@ import type { MapArtifact } from '@latch/transform';
 import type { Connection, DriftEvent, DriftStatus } from './domain';
 import type { Store } from './store/store';
 import { transactionSetDef } from './transaction-sets';
+import { connectionCorpus, loadSamples } from './samples';
 
 const edi = createEdiCore();
 
@@ -39,21 +40,23 @@ async function detectAndRecordDrift(
 ): Promise<DriftEvent | undefined> {
   const def = transactionSetDef(connection.transactionSet);
   if (!def) return undefined;
-  const samples = await store.getSamples(tenantId, connection.id);
+  const samples = await loadSamples(store, tenantId, connection.id);
   if (samples.length === 0) return undefined;
 
-  // Keep raw alongside parsed so the corpus is built from a sample we KNOW parses.
-  const parsed = samples
-    .map((s) => ({ raw: s, result: edi.parse(s) }))
-    .flatMap((p) => (p.result.ok ? [{ raw: p.raw, value: p.result.value }] : []));
+  // The baseline is built only from samples we KNOW parse.
+  const parsed = samples.flatMap((s) => {
+    const result = edi.parse(s.input);
+    return result.ok ? [result.value] : [];
+  });
   const live = edi.parse(raw);
   if (parsed.length === 0 || !live.ok) return undefined;
 
-  const findings = detectDrift(buildBaseline(parsed.map((p) => p.value)), live.value);
+  const findings = detectDrift(buildBaseline(parsed), live.value);
   if (findings.length === 0) return undefined;
 
-  const corpus = def.buildCorpus(parsed[0]!.raw.trim());
-  const shadow = shadowReCertify(artifact, corpus, driftCase(`drift-${txnId}`, raw));
+  // Shadow re-certify against the SAME corpus the map was certified on (every sample +
+  // its confirmed expected output), plus the drift case.
+  const shadow = shadowReCertify(artifact, connectionCorpus(def, samples), driftCase(`drift-${txnId}`, raw));
   const decision = decideHeal(findings, shadow);
 
   return store.createDriftEvent(tenantId, {

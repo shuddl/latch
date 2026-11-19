@@ -81,6 +81,12 @@ export interface IdempotentResponse {
   body: unknown;
 }
 
+/** What an operator confirmed a sample means, and when. */
+export interface ConfirmedSample {
+  expected: CanonicalRecord[];
+  confirmedAt: number;
+}
+
 export interface Store {
   // Partners
   createPartner(tenantId: string, data: CreatePartnerData): Promise<Partner>;
@@ -100,6 +106,10 @@ export interface Store {
   // Samples (raw EDI text the operator dropped in)
   addSamples(tenantId: string, connectionId: string, samples: string[]): Promise<number>;
   getSamples(tenantId: string, connectionId: string): Promise<string[]>;
+  // Operator-confirmed expected output per sample, keyed by the sample's content hash so a
+  // confirmation is locked to the exact bytes that were reviewed (docs/07).
+  getSampleAnchors(tenantId: string, connectionId: string): Promise<Record<string, ConfirmedSample>>;
+  putSampleAnchor(tenantId: string, connectionId: string, sampleHash: string, anchor: ConfirmedSample): Promise<void>;
 
   // Maps (record metadata + the declarative artifact blob)
   createMap(tenantId: string, data: CreateMapData): Promise<MapRecord>;

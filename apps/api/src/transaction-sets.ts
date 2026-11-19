@@ -17,6 +17,7 @@ import {
   buildCorpus204,
   buildCorpus210,
   buildCorpus211,
+  REFERENCE_FIXTURES,
   type GoldenCorpus,
 } from '@latch/verify';
 
@@ -27,14 +28,16 @@ export interface TransactionSetDef {
   defaultMap: MapArtifact;
   /** Build the golden corpus for certification from a known-parseable sample. */
   buildCorpus: (fixtureText: string) => GoldenCorpus;
+  /** The exact fixture text `buildCorpus`'s hand-verified expected output describes. */
+  referenceFixture: string;
 }
 
 export const TRANSACTION_SETS: Record<string, TransactionSetDef> = {
-  '214': { recordKind: 'StatusEvent', defaultMap: MAP_214_STATUSEVENT, buildCorpus: buildCorpus214 },
-  '990': { recordKind: 'TenderResponse', defaultMap: MAP_990_TENDERRESPONSE, buildCorpus: buildCorpus990 },
-  '204': { recordKind: 'Tender', defaultMap: MAP_204_TENDER, buildCorpus: buildCorpus204 },
-  '210': { recordKind: 'Invoice', defaultMap: MAP_210_INVOICE, buildCorpus: buildCorpus210 },
-  '211': { recordKind: 'BOL', defaultMap: MAP_211_BOL, buildCorpus: buildCorpus211 },
+  '214': { recordKind: 'StatusEvent', defaultMap: MAP_214_STATUSEVENT, buildCorpus: buildCorpus214, referenceFixture: REFERENCE_FIXTURES['214']! },
+  '990': { recordKind: 'TenderResponse', defaultMap: MAP_990_TENDERRESPONSE, buildCorpus: buildCorpus990, referenceFixture: REFERENCE_FIXTURES['990']! },
+  '204': { recordKind: 'Tender', defaultMap: MAP_204_TENDER, buildCorpus: buildCorpus204, referenceFixture: REFERENCE_FIXTURES['204']! },
+  '210': { recordKind: 'Invoice', defaultMap: MAP_210_INVOICE, buildCorpus: buildCorpus210, referenceFixture: REFERENCE_FIXTURES['210']! },
+  '211': { recordKind: 'BOL', defaultMap: MAP_211_BOL, buildCorpus: buildCorpus211, referenceFixture: REFERENCE_FIXTURES['211']! },
 };
 
 /** Lookup a supported transaction set, or `undefined` if Latch can't certify it yet. */

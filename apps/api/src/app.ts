@@ -11,7 +11,8 @@ import {
   mapArtifactSchema,
   type MapArtifact,
 } from '@latch/transform';
-import { certify } from '@latch/verify';
+import { certify, stripRaw } from '@latch/verify';
+import { canonicalRecordSchema } from '@latch/canonical';
 import { processInbound } from '@latch/pipeline';
 import { ingestSpec } from '@latch/spec';
 import { generateMap } from '@latch/mapgen';
@@ -27,6 +28,7 @@ import {
   LIMITS,
 } from './domain';
 import { ingestInbound } from './ingest';
+import { connectionCorpus, loadSamples } from './samples';
 import { transactionSetDef, SUPPORTED_TRANSACTION_SETS } from './transaction-sets';
 import { type RateLimiter, RATE_LIMIT_DEFAULT, RATE_WINDOW_SEC_DEFAULT } from './ratelimit';
 import { buildGoldenFlow } from './handshake-runtime';
@@ -323,12 +325,13 @@ export function createApp(
         `Corpus synthesis for ${record.transactionSet} is not supported yet (supported: ${SUPPORTED_TRANSACTION_SETS}).`,
       );
     }
-    const samples = await store.getSamples(tenantId, record.connectionId);
+    const samples = await loadSamples(store, tenantId, record.connectionId);
     if (samples.length === 0) {
       throw new LatchError('VALIDATION', 'Upload at least one sample EDI file before certifying.');
     }
 
-    const corpus = def.buildCorpus(samples[0]!.trim());
+    // Every sample is a golden record; each needs a confirmed expected output (docs/07).
+    const corpus = connectionCorpus(def, samples);
     const result = certify(artifact, corpus);
 
     const cert = await store.createCertification(tenantId, {
@@ -361,6 +364,64 @@ export function createApp(
 
     c.get('log').info('certification complete', { mapId, certId: cert.id, passed: result.passed });
     return c.json(cert, result.passed ? 200 : 422);
+  });
+
+  // ── Review + confirm what each sample means (the forward-oracle anchors) ─────
+  // The map's reading of every uploaded sample, for the operator to check once. Until a
+  // sample is confirmed the map cannot certify: without an independent expectation the
+  // engine could only grade the map against its own interpretation (docs/07).
+  app.get('/v1/maps/:id/samples', async (c) => {
+    const store = c.get('store');
+    const tenantId = c.get('tenantId');
+    const mapId = c.req.param('id');
+    const record = await store.getMap(tenantId, mapId);
+    if (!record) throw new LatchError('NOT_FOUND', 'Map not found');
+    const artifact = await store.getMapArtifact(tenantId, mapId);
+    if (!artifact) throw new LatchError('INTERNAL', 'Map artifact missing');
+    const def = transactionSetDef(record.transactionSet);
+
+    const samples = await loadSamples(store, tenantId, record.connectionId);
+    return c.json({
+      mapId,
+      connectionId: record.connectionId,
+      samples: samples.map((s, i) => {
+        const outcome = processInbound(s.input, artifact);
+        const reading = outcome.canonical ? outcome.canonical.map(stripRaw) : null;
+        const confirmedBy = s.expected ? 'operator' : def && s.input === def.referenceFixture ? 'reference' : null;
+        return {
+          index: i + 1,
+          hash: s.hash,
+          confirmedBy,
+          ...(s.confirmedAt ? { confirmedAt: s.confirmedAt } : {}),
+          ...(s.expected ? { expected: s.expected } : {}),
+          // What THIS map reads the sample as — the thing to check and confirm.
+          reading,
+          ...(outcome.error ? { error: outcome.error } : {}),
+        };
+      }),
+    });
+  });
+
+  app.post('/v1/connections/:id/samples/:hash/confirm', async (c) => {
+    const store = c.get('store');
+    const tenantId = c.get('tenantId');
+    const connection = await store.getConnection(tenantId, c.req.param('id'));
+    if (!connection) throw new LatchError('NOT_FOUND', 'Connection not found');
+    const hash = c.req.param('hash');
+    const samples = await loadSamples(store, tenantId, connection.id);
+    if (!samples.some((s) => s.hash === hash)) {
+      throw new LatchError('NOT_FOUND', 'No uploaded sample matches that hash for this connection.');
+    }
+    // The caller sends back exactly what was reviewed (optionally corrected), so what gets
+    // locked is what a person saw — never something re-derived from the map at confirm time.
+    const { expected } = await readJson(
+      c,
+      z.object({ expected: z.array(canonicalRecordSchema).min(1, 'Confirm at least one expected record') }),
+    );
+    const confirmedAt = Date.now();
+    await store.putSampleAnchor(tenantId, connection.id, hash, { expected, confirmedAt });
+    c.get('log').info('sample confirmed', { connectionId: connection.id, sampleHash: hash });
+    return c.json({ connectionId: connection.id, hash, confirmedBy: 'operator', confirmedAt });
   });
 
   // The accreting Spec Library — proven specs available for reuse (the network moat).
