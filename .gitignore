@@ -477,3 +477,6 @@ FodyWeavers.xsd
 
 # anchor-memory — per-machine session state
 .anchor/
+
+# shipwright-forge — rendered map (regenerated from state.md)
+.shipwright/map.html
