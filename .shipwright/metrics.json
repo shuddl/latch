@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "events": [
+    {
+      "ts": "2026-11-20T02:50:49.227Z",
+      "type": "mission-start"
+    },
+    {
+      "ts": "2026-11-20T02:50:49.256Z",
+      "type": "decode",
+      "dodItems": 18
+    },
+    {
+      "ts": "2026-11-20T02:50:49.520Z",
+      "type": "map-render"
+    }
+  ],
+  "rollup": {
+    "computedAt": "2026-11-20T02:50:49.520Z",
+    "eventCount": 3,
+    "firstPassGateRate": null,
+    "gatesSeen": 0,
+    "reworkRatio": null,
+    "tasksDone": 0,
+    "reworkTasks": 0,
+    "avgCycleMinutes": {
+      "S": null,
+      "M": null
+    },
+    "mapFreshness": null,
+    "stateWrites": 0,
+    "mapRenders": 1,
+    "armoryForged": 0,
+    "armoryReused": 0,
+    "armoryReuseRate": null,
+    "relayIdleEvents": 0,
+    "relayStops": [],
+    "holds": 0,
+    "capabilityGaps": 0,
+    "dodBeforeExecution": null
+  },
+  "missionRollups": []
+}
